@@ -25,3 +25,10 @@ Como testar pelo Samsung:
 4. Menu ⋮ do Chrome > Adicionar à tela inicial / Instalar app.
 
 O ZIP é o código-fonte do protótipo; não é um APK nem um link já publicado.
+
+
+VERSAO 0.2 - OCR experimental
+- Novo botão para fotografar a etiqueta e reconhecer texto com Tesseract.js (português e inglês).
+- O OCR tenta sugerir código e endereço; a leitura pode conter erros. Revise e corrija sempre antes de adicionar à rota.
+- O OCR carrega a biblioteca pela internet (CDN), então precisa de conexão.
+- Para atualizar o GitHub Pages, substitua index.html, app.js, sw.js e LEIA-ME.txt pelos arquivos desta versão.

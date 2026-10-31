@@ -25,6 +25,30 @@ async function startCamera(){
 }
 function stopCamera(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}$('cameraWrap').style.display='none'}
 $('scanBtn').onclick=startCamera;$('stopBtn').onclick=stopCamera;
+$('ocrBtn').onclick=()=>{$('ocrFile').click()};
+$('ocrFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;await readLabelOCR(file);e.target.value=''};
+async function readLabelOCR(file){
+ const status=$('ocrStatus');
+ if(!window.Tesseract){alert('O leitor de texto não carregou. Verifique a internet e tente novamente.');return}
+ status.textContent='Preparando leitura da etiqueta…';
+ try{
+  const result=await Tesseract.recognize(file,'por+eng',{logger:m=>{if(m.status==='recognizing text')status.textContent='Lendo etiqueta… '+Math.round((m.progress||0)*100)+'%'}});
+  const raw=(result.data.text||'').replace(/\r/g,'');
+  const parsed=parseLabelText(raw);
+  status.textContent='Leitura concluída. Confira os campos antes de salvar.';
+  review(parsed.code||pendingCode,parsed.address||raw.trim());
+ }catch(err){console.error(err);status.textContent='Não foi possível ler a imagem.';alert('Não consegui reconhecer o texto. Tente fotografar de frente, com boa luz e a etiqueta inteira visível.')}
+}
+function parseLabelText(raw){
+ const lines=raw.split('\n').map(x=>x.replace(/[|]/g,'I').trim()).filter(Boolean);
+ const cepMatch=raw.match(/\b\d{5}[- ]?\d{3}\b/);
+ const codeMatches=raw.match(/\b\d{10,16}\b/g)||[];
+ const streetLine=lines.find(x=>/\b(rua|r\.?|avenida|av\.?|travessa|estrada|rodovia|alameda|praça|praca)\b/i.test(x));
+ const numbered=lines.find(x=>/\b\d{1,5}\b/.test(x)&&x.length>5&&x!==streetLine);
+ let address=[streetLine,numbered&&numbered!==streetLine?numbered:null,cepMatch?('CEP '+cepMatch[0]):null].filter(Boolean).join(', ');
+ if(!address){const candidates=lines.filter(x=>x.length>8&&!/^(imile|shopee|shein|tiktok|pedido|remetente|destinatario|destinatário|tracking|order)/i.test(x));address=candidates.slice(-5).join(', ')}
+ return {code:codeMatches[0]||'',address};
+}
 async function geocode(address){try{let u='https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q='+encodeURIComponent(address);let r=await fetch(u);let d=await r.json();return d[0]?{lat:+d[0].lat,lon:+d[0].lon}:null}catch(e){return null}}
 async function recalc(){
  const pending=parcels.filter(p=>!p.done);if(!pending.length){$('map').textContent='Adicione endereços para montar sua rota.';return}

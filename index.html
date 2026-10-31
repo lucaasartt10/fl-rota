@@ -24,7 +24,7 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:20px}
 </style>
 </head>
 <body>
-<header><div><h1>FL ROTA</h1><small>ENTREGAS INTELIGENTES</small></div><span class="tag">BETA 0.1</span></header>
+<header><div><h1>FL ROTA</h1><small>ENTREGAS INTELIGENTES</small></div><span class="tag">BETA 0.2</span></header>
 <main>
 <div class="stats">
  <div class="stat"><b id="count">0</b><span>Pacotes</span></div>
@@ -32,12 +32,15 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:20px}
  <div class="stat"><b id="done">0</b><span>Entregues</span></div>
 </div>
 <div class="actions">
- <button id="scanBtn">▦ &nbsp; BIPAR ENCOMENDA</button>
+ <button id="scanBtn">▦ &nbsp; BIPAR CÓDIGO DE BARRAS</button>
+ <button class="secondary" id="ocrBtn">📷 Ler endereço da etiqueta</button>
  <button class="secondary" id="manualBtn">＋ Digitar pacote</button>
  <button class="secondary" id="homeBtn">⌖ Definir ponto de partida</button>
 </div>
 <div id="cameraWrap"><video id="video" playsinline></video><div style="padding:10px"><button class="secondary" id="stopBtn">Parar câmera</button></div></div>
-<div class="notice">Protótipo: a leitura do código identifica o pacote; a câmera também pode fotografar a etiqueta para você conferir o endereço. Confirme sempre o endereço antes de incluir a entrega.</div>
+<input id="ocrFile" type="file" accept="image/*" capture="environment" hidden>
+<p id="ocrStatus" class="muted" aria-live="polite"></p>
+<div class="notice">Leitura experimental: bipar o código identifica o pacote; fotografar a etiqueta usa OCR para reconhecer o texto do endereço. Confira e corrija tudo antes de adicionar à rota.</div>
 <div class="section-title"><span>Minha rota</span><button class="secondary" id="routeBtn" style="padding:9px 12px;font-size:12px">Recalcular</button></div>
 <div id="map" style="display:flex;align-items:center;justify-content:center;color:#aebdca;text-align:center;padding:18px">Adicione endereços e defina seu ponto de partida para visualizar a rota.</div>
 <div class="section-title"><span>Pacotes bipados</span><button class="secondary" id="clearBtn" style="padding:8px 10px;font-size:11px">Limpar lista</button></div>
@@ -65,5 +68,6 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:20px}
 <label>Endereço completo</label><textarea id="reviewAddress" rows="3"></textarea>
 <div class="dialog-actions"><button class="secondary" id="cancelReview">Cancelar</button><button id="confirmReview">Confirmar</button></div>
 </dialog>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="app.js"></script>
 </body></html>
