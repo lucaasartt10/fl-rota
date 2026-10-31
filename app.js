@@ -78,7 +78,7 @@ $('confirmReview').onclick = () => {
   const address = $('reviewAddress').value.trim();
 
   if (!address) {
-    alert('Não encontrei um endereço. Confira e informe o endereço antes de salvar.');
+    alert('Informe o endereço antes de salvar.');
     return;
   }
 
@@ -173,7 +173,7 @@ $('geoBtn').onclick = () => {
   });
 };
 
-/* FOTOGRAFIA E LEITURA DA ETIQUETA */
+/* FOTOGRAFIA E OCR */
 
 function openLabelCamera() {
   $('ocrFile').click();
@@ -182,9 +182,7 @@ function openLabelCamera() {
 $('ocrBtn').onclick = openLabelCamera;
 $('scanBtn').onclick = openLabelCamera;
 
-$('stopBtn').onclick = () => {
-  stopCamera();
-};
+$('stopBtn').onclick = stopCamera;
 
 function stopCamera() {
   if (stream) {
@@ -196,19 +194,36 @@ function stopCamera() {
 
 $('ocrFile').onchange = async event => {
   const file = event.target.files?.[0];
-  if (!file) return;
 
-  await readLabelOCR(file);
-  event.target.value = '';
+  if (!file) {
+    return;
+  }
+
+  alert('TESTE: a foto chegou ao FL ROTA!');
+
+  $('ocrStatus').textContent = 'Fotografia recebida. Iniciando leitura...';
+
+  try {
+    await readLabelOCR(file);
+  } catch (error) {
+    console.error('Erro no processamento da foto:', error);
+    alert('Erro ao processar a fotografia: ' + error.message);
+  } finally {
+    event.target.value = '';
+  }
 };
 
 async function readLabelOCR(file) {
   const status = $('ocrStatus');
 
-  if (ocrBusy) return;
+  if (ocrBusy) {
+    alert('Já existe uma leitura em andamento.');
+    return;
+  }
 
   if (!window.Tesseract) {
-    alert('O leitor de texto não carregou. Verifique sua conexão com a internet.');
+    status.textContent = 'Motor OCR não carregado.';
+    alert('O leitor de texto não carregou. Verifique sua conexão com a internet e o carregamento do Tesseract.');
     return;
   }
 
@@ -216,34 +231,48 @@ async function readLabelOCR(file) {
   status.textContent = 'Preparando leitura da etiqueta...';
 
   try {
-    const result = await Tesseract.recognize(file, 'por+eng', {
-      logger: message => {
-        if (message.status === 'recognizing text') {
-          status.textContent =
-            'Lendo endereço... ' +
-            Math.round((message.progress || 0) * 100) + '%';
+    const result = await window.Tesseract.recognize(
+      file,
+      'por+eng',
+      {
+        logger: message => {
+          if (message.status === 'recognizing text') {
+            status.textContent =
+              'Lendo etiqueta... ' +
+              Math.round((message.progress || 0) * 100) + '%';
+          } else if (message.status) {
+            status.textContent = 'Processando: ' + message.status;
+          }
         }
       }
-    });
+    );
 
-    const rawText = result.data.text || '';
-    const parsed = parseLabelText(rawText);
+    const rawText = result?.data?.text || '';
 
-    if (!parsed.address) {
-      status.textContent = 'Não encontrei um endereço com segurança.';
-      alert(
-        'Não consegui identificar o endereço. Tente fotografar a etiqueta inteira, de frente e com boa iluminação.'
-      );
+    console.log('TEXTO RECONHECIDO PELO OCR:', rawText);
+
+    if (!rawText.trim()) {
+      status.textContent = 'Nenhum texto encontrado.';
+      alert('A foto chegou, mas não foi possível ler o texto. Tente aproximar a câmera e melhorar a iluminação.');
       return;
     }
 
-    status.textContent = 'Endereço identificado. Confira antes de salvar.';
-    review('', parsed.address);
+    const parsed = parseLabelText(rawText);
+
+    status.textContent = 'Leitura concluída. Confira o endereço.';
+
+    if (parsed.address) {
+      review('', parsed.address);
+    } else {
+      // Mesmo sem identificar o endereço, permite correção manual.
+      review('', rawText.trim());
+      alert('Consegui ler parte da etiqueta, mas não identifiquei o endereço automaticamente. Confira o texto na tela e corrija o endereço antes de salvar.');
+    }
 
   } catch (error) {
-    console.error(error);
+    console.error('Falha no OCR:', error);
     status.textContent = 'Falha na leitura da etiqueta.';
-    alert('Não consegui ler a imagem. Tente novamente com uma foto mais nítida.');
+    alert('Erro no reconhecimento: ' + (error.message || error));
   } finally {
     ocrBusy = false;
   }
@@ -258,73 +287,72 @@ function parseLabelText(raw) {
     .map(line => line.replace(/\s+/g, ' ').trim())
     .filter(line => line.length > 2);
 
-  const normalized = lines.map(line =>
-    line.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
-  );
+  const normalize = line =>
+    line.normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase();
 
   const isNoise = line =>
-    /RASTREAMENTO|TRACKING|CODIGO|PEDIDO|ORDER|SHOPEE|SHEIN|TIKTOK|REMETENTE|CNPJ|CPF|TELEFONE|BARCODE|VOLUME|PESO/.test(line);
-
-  const isRecipient = line =>
-    /DESTINATARIO|DESTINATARIO|ENTREGA|SHIP TO|RECEIVER/.test(line);
+    /RASTREAMENTO|TRACKING|CODIGO DE BARRAS|PEDIDO|ORDER|SHOPEE|SHEIN|TIKTOK|REMETENTE|CNPJ|CPF|TELEFONE|BARCODE|VOLUME|PESO/.test(normalize(line));
 
   const isStreet = line =>
-    /\b(RUA|R\.|AVENIDA|AV\.|TRAVESSA|ESTRADA|RODOVIA|ALAMEDA|PRACA|PRACA|LARGO)\b/i.test(line);
+    /\b(RUA|R\.|AVENIDA|AV\.|TRAVESSA|ESTRADA|RODOVIA|ALAMEDA|PRACA|LARGO|VIELA|ROD\.)\b/i.test(line);
 
-  const cepIndex = normalized.findIndex(line =>
-    /\b\d{5}[- ]?\d{3}\b/.test(line)
+  const hasCep = line =>
+    /\b\d{5}[- ]?\d{3}\b/.test(line);
+
+  const cleanLines = lines.filter(line =>
+    !isNoise(line) || isStreet(line) || hasCep(line)
   );
 
   let selected = [];
-  const recipientIndex = normalized.findIndex(isRecipient);
+
+  // Primeiro tenta localizar a área do destinatário.
+  const recipientIndex = cleanLines.findIndex(line =>
+    /DESTINATARIO|ENTREGA|SHIP TO|RECEIVER|ENDERECO DE ENTREGA/.test(normalize(line))
+  );
 
   if (recipientIndex >= 0) {
-    for (
-      let i = recipientIndex + 1;
-      i < Math.min(lines.length, recipientIndex + 9);
-      i++
-    ) {
-      if (isNoise(normalized[i]) && !isStreet(lines[i])) continue;
-      selected.push(lines[i]);
-
-      if (selected.length >= 6) break;
-    }
+    selected = cleanLines.slice(recipientIndex + 1, recipientIndex + 8);
   }
 
+  // Se não encontrou marcador, procura uma rua.
   if (!selected.some(isStreet)) {
-    const streetIndex = lines.findIndex(isStreet);
+    const streetIndex = cleanLines.findIndex(isStreet);
 
     if (streetIndex >= 0) {
-      selected = lines.slice(streetIndex, streetIndex + 5)
-        .filter((line, index) =>
-          !isNoise(normalized[streetIndex + index]) ||
-          isStreet(line)
-        );
+      selected = cleanLines.slice(streetIndex, streetIndex + 6);
     }
   }
 
-  if (!selected.some(line => /\d{5}[- ]?\d{3}/.test(line)) && cepIndex >= 0) {
-    selected.push(lines[cepIndex]);
+  // Se encontrou CEP, aproveita as linhas próximas.
+  if (!selected.length) {
+    const cepIndex = cleanLines.findIndex(hasCep);
+
+    if (cepIndex >= 0) {
+      selected = cleanLines.slice(
+        Math.max(0, cepIndex - 3),
+        Math.min(cleanLines.length, cepIndex + 2)
+      );
+    }
   }
 
-  selected = selected.filter(line =>
-    !isNoise(line.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()) ||
-    isStreet(line)
-  );
+  selected = selected
+    .filter(line => !isNoise(line) || isStreet(line) || hasCep(line))
+    .filter(line => line.length > 2);
 
   selected = [...new Set(selected)];
 
   let address = selected.join(', ');
 
-  // Evita usar a etiqueta inteira como se fosse um endereço.
-  if (!address || (!selected.some(isStreet) && cepIndex < 0)) {
+  if (!selected.length) {
     address = '';
   }
 
   return { address };
 }
 
-/* PESQUISA MANUAL DE ENDEREÇO */
+/* PESQUISA MANUAL */
 
 const addressSearch = $('addressSearch');
 
@@ -342,7 +370,7 @@ if (addressSearch) {
   });
 }
 
-/* LOCALIZAÇÃO E ORGANIZAÇÃO DA ROTA */
+/* LOCALIZAÇÃO E ROTA */
 
 async function geocode(address) {
   try {
@@ -477,7 +505,9 @@ $('navBtn').onclick = () => {
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
+    navigator.serviceWorker.register('./sw.js').catch(error => {
+      console.error('Erro no Service Worker:', error);
+    });
   });
 }
 
