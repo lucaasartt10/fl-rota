@@ -27,8 +27,8 @@ body {
   margin:0;
   background:var(--bg);
   color:var(--white);
-  font-family:Arial, sans-serif;
-  padding-bottom:85px;
+  font-family:Arial,sans-serif;
+  padding-bottom:90px;
 }
 
 header {
@@ -82,7 +82,7 @@ main {
   background:var(--panel);
   border:1px solid var(--line);
   border-radius:15px;
-  padding:5px 12px;
+  padding:5px 10px;
   margin-bottom:13px;
 }
 
@@ -95,13 +95,15 @@ main {
   color:white;
   padding:13px 5px;
   font-size:14px;
+  margin:0;
 }
 
 .search button {
   background:transparent;
   color:white;
-  font-size:23px;
+  font-size:25px;
   padding:8px;
+  border:0;
 }
 
 button {
@@ -220,9 +222,7 @@ label {
   border-bottom:1px solid var(--line);
 }
 
-.parcel strong {
-  display:block;
-}
+.parcel strong { display:block; }
 
 .parcel small,.muted {
   color:var(--muted);
@@ -309,28 +309,44 @@ dialog::backdrop { background:#000B; }
 <div class="search">
   <span>⌕</span>
   <input id="addressSearch" placeholder="Pesquisar endereço...">
-  <button id="ocrBtn" aria-label="Ler etiqueta">📷</button>
+  <button type="button" id="ocrBtn"
+    aria-label="Fotografar etiqueta"
+    onclick="document.getElementById('ocrFile').click()">📷</button>
 </div>
 
 <div class="actions">
-  <button class="primary" id="scanBtn">▦ BIPAR CÓDIGO DE BARRAS</button>
-  <button class="secondary" id="manualBtn">＋ Digitar pacote</button>
-  <button class="secondary" id="homeBtn">⌖ Ponto de partida</button>
+  <button type="button" class="primary" id="scanBtn"
+    onclick="document.getElementById('ocrFile').click()">
+    📷 FOTOGRAFAR ETIQUETA
+  </button>
+  <button type="button" class="secondary" id="manualBtn">
+    ＋ Digitar pacote
+  </button>
+  <button type="button" class="secondary" id="homeBtn">
+    ⌖ Ponto de partida
+  </button>
 </div>
 
 <div id="cameraWrap">
   <video id="video" playsinline></video>
   <div style="padding:10px">
-    <button class="secondary" id="stopBtn">Parar câmera</button>
+    <button type="button" class="secondary" id="stopBtn">Fechar câmera</button>
   </div>
 </div>
 
-<input id="ocrFile" type="file" accept="image/*" capture="environment" hidden>
+<input
+  id="ocrFile"
+  type="file"
+  accept="image/*"
+  capture="environment"
+  hidden
+>
+
 <p id="ocrStatus" class="muted" aria-live="polite"></p>
 
 <div class="section-title">
   <span>MAPA DE ENTREGAS</span>
-  <button class="secondary" id="routeBtn">↻</button>
+  <button type="button" class="secondary" id="routeBtn">↻</button>
 </div>
 
 <div id="map" style="display:flex;align-items:center;justify-content:center;text-align:center;padding:18px">
@@ -343,13 +359,13 @@ dialog::backdrop { background:#000B; }
   <div class="stat"><b id="done">0</b><span>Entregues</span></div>
 </div>
 
-<button class="primary" id="navBtn" style="width:100%;padding:17px">
+<button type="button" class="primary" id="navBtn" style="width:100%;padding:17px">
   INICIAR ROTA →
 </button>
 
 <div class="section-title">
   <span>MEUS PACOTES</span>
-  <button class="secondary" id="clearBtn">Limpar lista</button>
+  <button type="button" class="secondary" id="clearBtn">Limpar lista</button>
 </div>
 
 <div class="card" id="list">
@@ -359,19 +375,20 @@ dialog::backdrop { background:#000B; }
 <div class="section-title">Adicionar pacote manualmente</div>
 
 <div class="card">
-  <label>Código de barras / rastreio</label>
+  <label>Código de barras / rastreio (opcional)</label>
   <input id="code" placeholder="Código do pacote">
 
   <label>Endereço completo</label>
-  <textarea id="address" rows="2" placeholder="Rua, número, bairro, cidade, CEP"></textarea>
+  <textarea id="address" rows="2"
+    placeholder="Rua, número, bairro, cidade, CEP"></textarea>
 
-  <button class="primary" id="addBtn" style="width:100%">
+  <button type="button" class="primary" id="addBtn" style="width:100%">
     ADICIONAR PACOTE
   </button>
 </div>
 
 <p class="notice">
-  FL ROTA • Confira os endereços reconhecidos antes de iniciar sua rota.
+  FL ROTA • Fotografe a etiqueta e confira o endereço reconhecido antes de iniciar sua rota.
 </p>
 
 </main>
@@ -382,7 +399,7 @@ dialog::backdrop { background:#000B; }
   <a href="#">⌂<br>Início</a>
   <a href="#list">▣<br>Pacotes</a>
   <a href="#map">▥<br>Estatísticas</a>
-  <a href="#homeDialog">⚙<br>Configurações</a>
+  <a href="#" onclick="document.getElementById('homeBtn').click();return false;">⚙<br>Configurações</a>
 </nav>
 
 <dialog id="homeDialog">
@@ -391,21 +408,22 @@ dialog::backdrop { background:#000B; }
   <label>Endereço</label>
   <input id="homeAddress" placeholder="Seu endereço">
   <div class="dialog-actions">
-    <button class="secondary" id="geoBtn">Usar GPS</button>
-    <button class="primary" id="saveHome">Salvar</button>
+    <button type="button" class="secondary" id="geoBtn">Usar GPS</button>
+    <button type="button" class="primary" id="saveHome">Salvar</button>
   </div>
 </dialog>
 
 <dialog id="reviewDialog">
   <h3>Confirmar pacote</h3>
   <p class="muted">Confira os dados antes de salvar.</p>
-  <label>Código</label>
-  <input id="reviewCode">
+  <label>Código (opcional)</label>
+  <input id="reviewCode" placeholder="Código do pacote">
   <label>Endereço completo</label>
-  <textarea id="reviewAddress" rows="3"></textarea>
+  <textarea id="reviewAddress" rows="3"
+    placeholder="Rua, número, bairro, cidade, CEP"></textarea>
   <div class="dialog-actions">
-    <button class="secondary" id="cancelReview">Cancelar</button>
-    <button class="primary" id="confirmReview">Confirmar</button>
+    <button type="button" class="secondary" id="cancelReview">Cancelar</button>
+    <button type="button" class="primary" id="confirmReview">Confirmar</button>
   </div>
 </dialog>
 
