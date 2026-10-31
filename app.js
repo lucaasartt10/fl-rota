@@ -68,7 +68,14 @@ function review(code, address) {
   pendingCode = code || '';
   $('reviewCode').value = code || '';
   $('reviewAddress').value = address || '';
-  $('reviewDialog').showModal();
+
+  const dialog = $('reviewDialog');
+
+  if (!dialog.open) {
+    dialog.showModal();
+  }
+
+  $('reviewAddress').focus();
 }
 
 $('cancelReview').onclick = () => $('reviewDialog').close();
@@ -195,11 +202,7 @@ function stopCamera() {
 $('ocrFile').onchange = async event => {
   const file = event.target.files?.[0];
 
-  if (!file) {
-    return;
-  }
-
-  alert('TESTE: a foto chegou ao FL ROTA!');
+  if (!file) return;
 
   $('ocrStatus').textContent = 'Fotografia recebida. Iniciando leitura...';
 
@@ -223,7 +226,7 @@ async function readLabelOCR(file) {
 
   if (!window.Tesseract) {
     status.textContent = 'Motor OCR não carregado.';
-    alert('O leitor de texto não carregou. Verifique sua conexão com a internet e o carregamento do Tesseract.');
+    alert('O leitor de texto não carregou. Verifique sua conexão com a internet.');
     return;
   }
 
@@ -248,25 +251,27 @@ async function readLabelOCR(file) {
     );
 
     const rawText = result?.data?.text || '';
+    const recognizedText = rawText.trim();
 
-    console.log('TEXTO RECONHECIDO PELO OCR:', rawText);
+    console.log('TEXTO RECONHECIDO PELO OCR:', recognizedText);
 
-    if (!rawText.trim()) {
+    if (!recognizedText) {
       status.textContent = 'Nenhum texto encontrado.';
-      alert('A foto chegou, mas não foi possível ler o texto. Tente aproximar a câmera e melhorar a iluminação.');
+      alert('Não foi possível reconhecer texto nessa fotografia. Tente outra foto.');
       return;
     }
 
-    const parsed = parseLabelText(rawText);
+    const parsed = parseLabelText(recognizedText);
 
-    status.textContent = 'Leitura concluída. Confira o endereço.';
+    status.textContent = 'Leitura concluída. Confira o texto reconhecido.';
 
     if (parsed.address) {
+      // Se encontrou um endereço, apresenta o endereço para confirmação.
       review('', parsed.address);
     } else {
-      // Mesmo sem identificar o endereço, permite correção manual.
-      review('', rawText.trim());
-      alert('Consegui ler parte da etiqueta, mas não identifiquei o endereço automaticamente. Confira o texto na tela e corrija o endereço antes de salvar.');
+      // Se não encontrou, apresenta TODO o texto reconhecido.
+      // Não exibe alerta: o usuário poderá corrigir diretamente.
+      review('', recognizedText);
     }
 
   } catch (error) {
@@ -307,7 +312,6 @@ function parseLabelText(raw) {
 
   let selected = [];
 
-  // Primeiro tenta localizar a área do destinatário.
   const recipientIndex = cleanLines.findIndex(line =>
     /DESTINATARIO|ENTREGA|SHIP TO|RECEIVER|ENDERECO DE ENTREGA/.test(normalize(line))
   );
@@ -316,7 +320,6 @@ function parseLabelText(raw) {
     selected = cleanLines.slice(recipientIndex + 1, recipientIndex + 8);
   }
 
-  // Se não encontrou marcador, procura uma rua.
   if (!selected.some(isStreet)) {
     const streetIndex = cleanLines.findIndex(isStreet);
 
@@ -325,7 +328,6 @@ function parseLabelText(raw) {
     }
   }
 
-  // Se encontrou CEP, aproveita as linhas próximas.
   if (!selected.length) {
     const cepIndex = cleanLines.findIndex(hasCep);
 
@@ -343,13 +345,9 @@ function parseLabelText(raw) {
 
   selected = [...new Set(selected)];
 
-  let address = selected.join(', ');
-
-  if (!selected.length) {
-    address = '';
-  }
-
-  return { address };
+  return {
+    address: selected.length ? selected.join(', ') : ''
+  };
 }
 
 /* PESQUISA MANUAL */
@@ -512,3 +510,4 @@ if ('serviceWorker' in navigator) {
 }
 
 render();
+0
