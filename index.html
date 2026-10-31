@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101820">
+<meta name="description" content="FL ROTA — leitura e organização de entregas">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<title>FL ROTA</title>
+<style>
+:root{color-scheme:dark;--bg:#101820;--panel:#1b2733;--panel2:#263646;--mint:#63d3a5;--text:#f4f7fa;--muted:#aebdca;--line:#344555;--danger:#ff8d8d}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px system-ui,-apple-system,Segoe UI,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+header{padding:22px 18px 14px;display:flex;justify-content:space-between;align-items:center}h1{font-size:28px;letter-spacing:1px;margin:0;font-weight:900}header small{color:var(--muted);letter-spacing:1.4px;font-size:10px}.tag{border:1px solid #387d65;color:var(--mint);border-radius:99px;padding:5px 10px;font-size:11px}
+main{padding:0 16px 28px;max-width:720px;margin:auto}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:10px 0 16px}.stat,.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px}.stat b{display:block;font-size:25px}.stat span,.muted{color:var(--muted);font-size:12px}
+button{border:0;border-radius:13px;padding:14px 16px;font-weight:750;font-size:15px;background:var(--mint);color:#10251d;cursor:pointer}button.secondary{background:var(--panel2);border:1px solid var(--line);color:var(--text)}button.danger{background:#4a292d;color:#ffd5d5}button:disabled{opacity:.45}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:14px}.actions button:first-child{grid-column:1/-1;min-height:54px}
+.section-title{display:flex;align-items:center;justify-content:space-between;margin:20px 2px 9px;font-weight:800}
+input,textarea{width:100%;background:#111d27;color:var(--text);border:1px solid var(--line);border-radius:11px;padding:12px;font:inherit;margin:5px 0 10px}label{font-size:12px;color:var(--muted)}
+.parcel{padding:13px;border-bottom:1px solid var(--line)}.parcel strong{display:block}.parcel small{color:var(--muted)}.pill{font-size:11px;color:var(--mint);border:1px solid #387d65;border-radius:20px;padding:3px 8px;float:right}
+#cameraWrap{display:none;background:#000;border-radius:16px;overflow:hidden;margin:10px 0}video{width:100%;max-height:300px;object-fit:cover}#map{height:270px;border-radius:14px;overflow:hidden;background:#17232d;border:1px solid var(--line)}.notice{background:#302c20;border:1px solid #665a35;color:#f4e3aa;padding:11px;border-radius:12px;font-size:12px;line-height:1.45}
+dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:18px;width:calc(100% - 28px);max-width:520px}dialog::backdrop{background:#000b}.dialog-actions{display:flex;gap:8px}.dialog-actions button{flex:1}
+footer{text-align:center;color:var(--muted);font-size:11px;padding:20px}
+</style>
+</head>
+<body>
+<header><div><h1>FL ROTA</h1><small>ENTREGAS INTELIGENTES</small></div><span class="tag">BETA 0.1</span></header>
+<main>
+<div class="stats">
+ <div class="stat"><b id="count">0</b><span>Pacotes</span></div>
+ <div class="stat"><b id="pending">0</b><span>Pendentes</span></div>
+ <div class="stat"><b id="done">0</b><span>Entregues</span></div>
+</div>
+<div class="actions">
+ <button id="scanBtn">▦ &nbsp; BIPAR ENCOMENDA</button>
+ <button class="secondary" id="manualBtn">＋ Digitar pacote</button>
+ <button class="secondary" id="homeBtn">⌖ Definir ponto de partida</button>
+</div>
+<div id="cameraWrap"><video id="video" playsinline></video><div style="padding:10px"><button class="secondary" id="stopBtn">Parar câmera</button></div></div>
+<div class="notice">Protótipo: a leitura do código identifica o pacote; a câmera também pode fotografar a etiqueta para você conferir o endereço. Confirme sempre o endereço antes de incluir a entrega.</div>
+<div class="section-title"><span>Minha rota</span><button class="secondary" id="routeBtn" style="padding:9px 12px;font-size:12px">Recalcular</button></div>
+<div id="map" style="display:flex;align-items:center;justify-content:center;color:#aebdca;text-align:center;padding:18px">Adicione endereços e defina seu ponto de partida para visualizar a rota.</div>
+<div class="section-title"><span>Pacotes bipados</span><button class="secondary" id="clearBtn" style="padding:8px 10px;font-size:11px">Limpar lista</button></div>
+<div class="card" id="list"><div class="muted">Nenhum pacote cadastrado ainda.</div></div>
+<div class="section-title">Adicionar endereço manualmente</div>
+<div class="card">
+ <label>Código de barras / rastreio</label><input id="code" placeholder="Leia ou digite o código">
+ <label>Endereço completo</label><textarea id="address" rows="2" placeholder="Rua, número, bairro, cidade, CEP"></textarea>
+ <button id="addBtn" style="width:100%">Adicionar pacote</button>
+</div>
+<div class="section-title">Navegação</div>
+<button class="secondary" id="navBtn" style="width:100%">Abrir próximo destino no mapa</button>
+<p class="muted">O mapa e a otimização usam serviços públicos de demonstração. Para uso diário, precisaremos configurar um provedor confiável, limites e política de privacidade.</p>
+</main>
+<footer>FL ROTA • Dados salvos neste aparelho</footer>
+
+<dialog id="homeDialog">
+<h3>Ponto de partida</h3><p class="muted">Você escolheu sair de casa. Use sua localização atual no início da jornada ou informe um endereço. Sua localização não é enviada ao chat.</p>
+<label>Endereço de partida (opcional)</label><input id="homeAddress" placeholder="Seu endereço ou referência">
+<div class="dialog-actions"><button class="secondary" id="geoBtn">Usar localização atual</button><button id="saveHome">Salvar</button></div>
+</dialog>
+<dialog id="reviewDialog">
+<h3>Confirmar pacote</h3><p class="muted">Confira os dados reconhecidos antes de adicionar.</p>
+<label>Código</label><input id="reviewCode">
+<label>Endereço completo</label><textarea id="reviewAddress" rows="3"></textarea>
+<div class="dialog-actions"><button class="secondary" id="cancelReview">Cancelar</button><button id="confirmReview">Confirmar</button></div>
+</dialog>
+<script src="app.js"></script>
+</body></html>

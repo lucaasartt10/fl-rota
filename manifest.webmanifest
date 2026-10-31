@@ -1,0 +1,9 @@
+{
+  "name": "FL ROTA",
+  "short_name": "FL ROTA",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#101820",
+  "theme_color": "#101820",
+  "description": "Leitura e organização de entregas"
+}

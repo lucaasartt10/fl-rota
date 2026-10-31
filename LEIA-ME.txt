@@ -1,0 +1,27 @@
+FL ROTA PWA — protótipo 0.1
+
+O que já funciona:
+- Interface adaptada ao celular.
+- Cadastro manual de código + endereço.
+- Lista salva localmente no aparelho.
+- Detecção de duplicidade pelo código.
+- Marcar entrega concluída.
+- Definir ponto de partida por endereço ou GPS.
+- Geocodificação experimental e ordenação aproximada por proximidade.
+- Instalação PWA quando hospedado em HTTPS.
+
+Limitações importantes:
+- A leitura pela câmera usa BarcodeDetector, disponível em versões compatíveis do Chrome Android. Se não houver suporte, use a entrada manual.
+- OCR da etiqueta ainda NÃO está implementado nesta versão.
+- O cálculo de rota é uma ordenação aproximada por distância em linha reta, não uma otimização profissional por ruas/trânsito.
+- O botão de navegação abre o próximo destino no Google Maps. A navegação turn-by-turn interna será etapa futura.
+- Geocodificação depende de serviço público e conexão; não é adequado para produção em grande escala.
+- Não utilize dados pessoais reais em ambiente de teste sem avaliar privacidade e segurança.
+
+Como testar pelo Samsung:
+1. Hospede estes arquivos em um serviço HTTPS estático (por exemplo, GitHub Pages).
+2. Abra o endereço publicado no Chrome do celular.
+3. Permita câmera e localização quando solicitado.
+4. Menu ⋮ do Chrome > Adicionar à tela inicial / Instalar app.
+
+O ZIP é o código-fonte do protótipo; não é um APK nem um link já publicado.
