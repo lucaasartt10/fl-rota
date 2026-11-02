@@ -1,16 +1,16 @@
-
 <!doctype html>
+
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#090B0F">
-<meta name="description" content="FL ROTA - Entregas inteligentes">
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="icon.svg" type="image/svg+xml">
-<title>FL ROTA</title>
-
-<style>
+<meta name="description" content="FL ROTA - Entregas inteligentes"><link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml"><!-- Leaflet - sistema de mapas --><link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  crossorigin=""
+><title>FL ROTA</title><style>
 :root {
   --bg:#090B0F;
   --panel:#15191F;
@@ -65,7 +65,7 @@ header {
   display:inline-block;
   width:7px;
   height:7px;
-  background:white;
+  background:#35D07F;
   border-radius:50%;
   margin-right:5px;
 }
@@ -152,15 +152,6 @@ video {
   object-fit:cover;
 }
 
-#map {
-  min-height:270px;
-  background:#101318;
-  border:1px solid #252B33;
-  border-radius:17px;
-  overflow:auto;
-  color:white;
-}
-
 .section-title {
   display:flex;
   align-items:center;
@@ -168,6 +159,127 @@ video {
   margin:22px 2px 11px;
   font-size:15px;
   font-weight:bold;
+}
+
+/* =========================
+   MAPA FL ROTA
+   ========================= */
+
+#map {
+  width:100%;
+  height:390px;
+  min-height:390px;
+  background:#101318;
+  border:1px solid #252B33;
+  border-radius:17px;
+  overflow:hidden;
+  position:relative;
+  z-index:1;
+}
+
+/* Controles do Leaflet */
+.leaflet-control-zoom {
+  border:1px solid #343A44 !important;
+}
+
+.leaflet-control-zoom a {
+  background:#15191F !important;
+  color:white !important;
+  border-color:#343A44 !important;
+}
+
+.leaflet-control-attribution {
+  background:rgba(9,11,15,.75) !important;
+  color:#9299A4 !important;
+  font-size:8px !important;
+}
+
+.leaflet-control-attribution a {
+  color:#AAB0BA !important;
+}
+
+/* Botão de localização */
+.map-location-control {
+  width:42px;
+  height:42px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:#15191F;
+  border:1px solid #343A44;
+  border-radius:10px;
+  color:white;
+  font-size:20px;
+  box-shadow:0 2px 8px #0008;
+}
+
+.map-location-control:active {
+  opacity:.7;
+}
+
+/* Marcador do motorista */
+.driver-marker {
+  width:22px;
+  height:22px;
+  background:#2F80FF;
+  border:4px solid white;
+  border-radius:50%;
+  box-shadow:0 0 0 7px #2F80FF33, 0 2px 8px #0009;
+}
+
+/* Marcador de entrega */
+.delivery-marker {
+  width:34px;
+  height:34px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:var(--red);
+  color:white;
+  border:3px solid white;
+  border-radius:50% 50% 50% 0;
+  transform:rotate(-45deg);
+  box-shadow:0 3px 8px #0009;
+  font-weight:900;
+}
+
+.delivery-marker span {
+  transform:rotate(45deg);
+  font-size:13px;
+}
+
+/* Caixa de informações da rota */
+.route-info {
+  margin-top:9px;
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr;
+  gap:7px;
+}
+
+.route-info-box {
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:11px;
+  padding:9px 7px;
+  text-align:center;
+}
+
+.route-info-box strong {
+  display:block;
+  font-size:14px;
+}
+
+.route-info-box span {
+  color:var(--muted);
+  font-size:9px;
+}
+
+#mapStatus {
+  margin-top:8px;
+  color:var(--muted);
+  font-size:11px;
+  text-align:center;
+  min-height:16px;
 }
 
 .stats {
@@ -291,144 +403,220 @@ dialog::backdrop { background:#000B; }
 }
 
 .dialog-actions button { flex:1; }
-</style>
-</head>
-
-<body>
-
-<header>
+</style></head><body><header>
   <div>
     <div class="brand">FL <span>ROTA</span></div>
     <div class="subtitle">ENTREGAS INTELIGENTES</div>
-  </div>
-  <div class="online"><i></i>ONLINE</div>
-</header>
+  </div>  <div class="online"><i></i>ONLINE</div>
+</header><main><div class="search">
+  <span>⌕</span><input
+id="addressSearch"
+placeholder="Pesquisar endereço..."
+autocomplete="street-address"
 
-<main>
+«»
 
-<div class="search">
-  <span>⌕</span>
-  <input id="addressSearch" placeholder="Pesquisar endereço...">
-  <button type="button" id="ocrBtn"
-    aria-label="Fotografar etiqueta"
-    onclick="document.getElementById('ocrFile').click()">📷</button>
-</div>
+<button
+type="button"
+id="ocrBtn"
+aria-label="Fotografar etiqueta"
+onclick="document.getElementById('ocrFile').click()"
 
-<div class="actions">
-  <button type="button" class="primary" id="scanBtn"
-    onclick="document.getElementById('ocrFile').click()">
-    📷 FOTOGRAFAR ETIQUETA
-  </button>
-  <button type="button" class="secondary" id="manualBtn">
+«📷</button>»
+
+</div><div class="actions"><button
+type="button"
+class="primary"
+id="scanBtn"
+onclick="document.getElementById('ocrFile').click()"
+
+«»
+
+📷 FOTOGRAFAR ETIQUETA
+
+  </button>  <button type="button" class="secondary" id="manualBtn">
     ＋ Digitar pacote
-  </button>
-  <button type="button" class="secondary" id="homeBtn">
+  </button>  <button type="button" class="secondary" id="homeBtn">
     ⌖ Ponto de partida
-  </button>
-</div>
-
-<div id="cameraWrap">
-  <video id="video" playsinline></video>
-  <div style="padding:10px">
-    <button type="button" class="secondary" id="stopBtn">Fechar câmera</button>
+  </button></div><div id="cameraWrap">
+  <video id="video" playsinline></video>  <div style="padding:10px">
+    <button type="button" class="secondary" id="stopBtn">
+      Fechar câmera
+    </button>
   </div>
-</div>
+</div><input
+id="ocrFile"
+type="file"
+accept="image/*"
+capture="environment"
+hidden
 
-<input
-  id="ocrFile"
-  type="file"
-  accept="image/*"
-  capture="environment"
-  hidden
->
+«»
 
-<p id="ocrStatus" class="muted" aria-live="polite"></p>
+<p id="ocrStatus" class="muted" aria-live="polite"></p><div class="section-title">
+  <span>MAPA DE ENTREGAS</span><button
+type="button"
+class="secondary"
+id="routeBtn"
+title="Atualizar rota"
+aria-label="Atualizar rota"
 
-<div class="section-title">
-  <span>MAPA DE ENTREGAS</span>
-  <button type="button" class="secondary" id="routeBtn">↻</button>
-</div>
+«↻</button>»
 
-<div id="map" style="display:flex;align-items:center;justify-content:center;text-align:center;padding:18px">
-  Adicione endereços para montar sua rota.
-</div>
+</div><!-- MAPA REAL --><div id="map"></div><!-- Informações da navegação --><div class="route-info">  <div class="route-info-box">
+    <strong id="routeDistance">--</strong>
+    <span>DISTÂNCIA</span>
+  </div>  <div class="route-info-box">
+    <strong id="routeTime">--</strong>
+    <span>ESTIMATIVA</span>
+  </div>  <div class="route-info-box">
+    <strong id="routeStops">0</strong>
+    <span>PARADAS</span>
+  </div></div><div id="mapStatus" aria-live="polite">
+  Aguardando localização...
+</div><div class="stats">
+  <div class="stat">
+    <b id="count">0</b>
+    <span>Pacotes</span>
+  </div>  <div class="stat">
+    <b id="pending">0</b>
+    <span>Pendentes</span>
+  </div>  <div class="stat">
+    <b id="done">0</b>
+    <span>Entregues</span>
+  </div>
+</div><button
+type="button"
+class="primary"
+id="navBtn"
+style="width:100%;padding:17px"
 
-<div class="stats">
-  <div class="stat"><b id="count">0</b><span>Pacotes</span></div>
-  <div class="stat"><b id="pending">0</b><span>Pendentes</span></div>
-  <div class="stat"><b id="done">0</b><span>Entregues</span></div>
-</div>
+«»
 
-<button type="button" class="primary" id="navBtn" style="width:100%;padding:17px">
-  INICIAR ROTA →
+INICIAR ROTA →
 </button>
 
 <div class="section-title">
-  <span>MEUS PACOTES</span>
-  <button type="button" class="secondary" id="clearBtn">Limpar lista</button>
-</div>
+  <span>MEUS PACOTES</span><button
+type="button"
+class="secondary"
+id="clearBtn"
 
-<div class="card" id="list">
-  <div class="muted">Nenhum pacote cadastrado ainda.</div>
-</div>
+«»
 
-<div class="section-title">Adicionar pacote manualmente</div>
+Limpar lista
 
-<div class="card">
-  <label>Código de barras / rastreio (opcional)</label>
-  <input id="code" placeholder="Código do pacote">
-
-  <label>Endereço completo</label>
-  <textarea id="address" rows="2"
-    placeholder="Rua, número, bairro, cidade, CEP"></textarea>
-
-  <button type="button" class="primary" id="addBtn" style="width:100%">
-    ADICIONAR PACOTE
   </button>
-</div>
+</div><div class="card" id="list">
+  <div class="muted">
+    Nenhum pacote cadastrado ainda.
+  </div>
+</div><div class="section-title">
+  Adicionar pacote manualmente
+</div><div class="card">  <label>
+    Código de barras / rastreio (opcional)
+  </label><input
+id="code"
+placeholder="Código do pacote"
 
-<p class="notice">
+«»
+
+  <label>
+    Endereço completo
+  </label>  <textarea
+    id="address"
+    rows="2"
+    placeholder="Rua, número, bairro, cidade, CEP"
+  ></textarea><button
+type="button"
+class="primary"
+id="addBtn"
+style="width:100%"
+
+«»
+
+ADICIONAR PACOTE
+
+  </button></div><p class="notice">
   FL ROTA • Fotografe a etiqueta e confira o endereço reconhecido antes de iniciar sua rota.
-</p>
+</p></main><footer>
+  FL ROTA • ENTREGAS INTELIGENTES
+</footer><nav class="bottom">  <a href="#">
+    ⌂<br>Início
+  </a>  <a href="#list">
+    ▣<br>Pacotes
+  </a>  <a href="#map">
+    ▥<br>Mapa
+  </a><a
+href="#"
+onclick="document.getElementById('homeBtn').click();return false;"
 
-</main>
+«»
 
-<footer>FL ROTA • ENTREGAS INTELIGENTES</footer>
+⚙<br>Configurações
 
-<nav class="bottom">
-  <a href="#">⌂<br>Início</a>
-  <a href="#list">▣<br>Pacotes</a>
-  <a href="#map">▥<br>Estatísticas</a>
-  <a href="#" onclick="document.getElementById('homeBtn').click();return false;">⚙<br>Configurações</a>
-</nav>
+  </a></nav><dialog id="homeDialog">  <h3>Ponto de partida</h3>  <p class="muted">
+    Defina seu endereço de saída.
+  </p><label>Endereço</label>
 
-<dialog id="homeDialog">
-  <h3>Ponto de partida</h3>
-  <p class="muted">Defina seu endereço de saída.</p>
-  <label>Endereço</label>
-  <input id="homeAddress" placeholder="Seu endereço">
-  <div class="dialog-actions">
-    <button type="button" class="secondary" id="geoBtn">Usar GPS</button>
-    <button type="button" class="primary" id="saveHome">Salvar</button>
-  </div>
-</dialog>
+<input
+id="homeAddress"
+placeholder="Seu endereço"
 
-<dialog id="reviewDialog">
-  <h3>Confirmar pacote</h3>
-  <p class="muted">Confira os dados antes de salvar.</p>
-  <label>Código (opcional)</label>
-  <input id="reviewCode" placeholder="Código do pacote">
-  <label>Endereço completo</label>
-  <textarea id="reviewAddress" rows="3"
-    placeholder="Rua, número, bairro, cidade, CEP"></textarea>
-  <div class="dialog-actions">
-    <button type="button" class="secondary" id="cancelReview">Cancelar</button>
-    <button type="button" class="primary" id="confirmReview">Confirmar</button>
-  </div>
-</dialog>
+«»
 
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-<script src="app.js"></script>
+  <div class="dialog-actions"><button
+  type="button"
+  class="secondary"
+  id="geoBtn"
+>
+  📍 Usar GPS
+</button>
 
-</body>
+<button
+  type="button"
+  class="primary"
+  id="saveHome"
+>
+  Salvar
+</button>
+
+  </div></dialog><dialog id="reviewDialog">  <h3>Confirmar pacote</h3>  <p class="muted">
+    Confira os dados antes de salvar.
+  </p><label>Código (opcional)</label>
+
+<input
+id="reviewCode"
+placeholder="Código do pacote"
+
+«»
+
+<label>Endereço completo</label>
+
+  <textarea
+    id="reviewAddress"
+    rows="3"
+    placeholder="Rua, número, bairro, cidade, CEP"
+  ></textarea>  <div class="dialog-actions"><button
+  type="button"
+  class="secondary"
+  id="cancelReview"
+>
+  Cancelar
+</button>
+
+<button
+  type="button"
+  class="primary"
+  id="confirmReview"
+>
+  Confirmar
+</button>
+
+  </div></dialog><!-- Bibliotecas --><script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  crossorigin=""
+></script><script
+  src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"
+></script><!-- Lógica principal do FL ROTA --><script src="app.js"></script></body>
 </html>
