@@ -1,9 +1,13 @@
+/* =========================================================
+   FL ROTA - APP.JS
+   Versão com inicialização protegida do mapa
+========================================================= */
+
 const $ = id => document.getElementById(id);
 
 const readStorage = (key, fallback) => {
   try {
-    const value = JSON.parse(localStorage.getItem(key));
-    return value ?? fallback;
+    return JSON.parse(localStorage.getItem(key)) ?? fallback;
   } catch {
     return fallback;
   }
@@ -25,8 +29,34 @@ let currentPosition = null;
 let navigationActive = false;
 let lastRoutePosition = null;
 let routingBusy = false;
+let mapStarting = false;
 
 window.flrotaOrder = [];
+
+/* =========================================================
+   PROTEÇÃO DOS ELEMENTOS HTML
+========================================================= */
+
+function on(id, event, callback) {
+  const element = $(id);
+  if (element) element.addEventListener(event, callback);
+  else console.warn('Elemento HTML não encontrado:', id);
+}
+
+function setText(id, value) {
+  const element = $(id);
+  if (element) element.textContent = value;
+}
+
+function setValue(id, value) {
+  const element = $(id);
+  if (element) element.value = value;
+}
+
+function showMapError(message) {
+  console.error(message);
+  setMapStatus(message);
+}
 
 /* =========================================================
    UTILIDADES
@@ -49,11 +79,14 @@ function save() {
 }
 
 function render() {
-  $('count').textContent = parcels.length;
-  $('pending').textContent = parcels.filter(p => !p.done).length;
-  $('done').textContent = parcels.filter(p => p.done).length;
+  setText('count', parcels.length);
+  setText('pending', parcels.filter(p => !p.done).length);
+  setText('done', parcels.filter(p => p.done).length);
 
-  $('list').innerHTML = parcels.length
+  const list = $('list');
+  if (!list) return;
+
+  list.innerHTML = parcels.length
     ? parcels.map((p, i) => `
       <div class="parcel">
         <span class="pill">${p.done ? 'Entregue' : 'Pendente'}</span>
@@ -61,9 +94,7 @@ function render() {
         <small>
           ${escapeHtml(p.code || 'Sem código')}
           ·
-          ${Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lon)) && p.lat !== null && p.lon !== null
-            ? 'Localizado'
-            : 'Aguardando localização'}
+          ${p.lat !== null && p.lon !== null ? 'Localizado' : 'Aguardando localização'}
         </small>
         <div style="display:flex;gap:7px;margin-top:9px">
           <button class="secondary"
@@ -98,26 +129,26 @@ window.removeParcel = i => {
   save();
 };
 
-/* =========================================================
-   CONFIRMAÇÃO DE PACOTE
-========================================================= */
-
 function review(code, address) {
   pendingCode = code || '';
-  $('reviewCode').value = code || '';
-  $('reviewAddress').value = address || '';
+
+  setValue('reviewCode', code || '');
+  setValue('reviewAddress', address || '');
 
   const dialog = $('reviewDialog');
-  if (!dialog.open) dialog.showModal();
 
-  $('reviewAddress').focus();
+  if (dialog && !dialog.open) dialog.showModal();
+
+  $('reviewAddress')?.focus();
 }
 
-$('cancelReview').onclick = () => $('reviewDialog').close();
+on('cancelReview', 'click', () => {
+  $('reviewDialog')?.close();
+});
 
-$('confirmReview').onclick = () => {
-  const code = $('reviewCode').value.trim();
-  const address = $('reviewAddress').value.trim();
+on('confirmReview', 'click', () => {
+  const code = $('reviewCode')?.value.trim() || '';
+  const address = $('reviewAddress')?.value.trim() || '';
 
   if (!address) {
     alert('Informe o endereço antes de salvar.');
@@ -137,7 +168,7 @@ $('confirmReview').onclick = () => {
   }
 
   parcels.push({
-    code: code || '',
+    code,
     address,
     done: false,
     created: Date.now(),
@@ -145,43 +176,48 @@ $('confirmReview').onclick = () => {
     lon: null
   });
 
-  $('reviewDialog').close();
-  $('code').value = '';
-  $('address').value = '';
+  $('reviewDialog')?.close();
+
+  setValue('code', '');
+  setValue('address', '');
+
   save();
-};
+});
 
-$('addBtn').onclick = () => {
-  review($('code').value.trim(), $('address').value.trim());
-};
+on('addBtn', 'click', () => {
+  review(
+    $('code')?.value.trim() || '',
+    $('address')?.value.trim() || ''
+  );
+});
 
-$('manualBtn').onclick = () => {
-  $('code').focus();
+on('manualBtn', 'click', () => {
+  $('code')?.focus();
   window.scrollTo({
     top: document.body.scrollHeight,
     behavior: 'smooth'
   });
-};
+});
 
-$('clearBtn').onclick = () => {
+on('clearBtn', 'click', () => {
   if (confirm('Apagar todos os pacotes deste aparelho?')) {
     parcels = [];
     window.flrotaOrder = [];
     save();
   }
-};
+});
 
 /* =========================================================
    PONTO DE PARTIDA
 ========================================================= */
 
-$('homeBtn').onclick = () => {
-  $('homeAddress').value = home?.address || '';
-  $('homeDialog').showModal();
-};
+on('homeBtn', 'click', () => {
+  setValue('homeAddress', home?.address || '');
+  $('homeDialog')?.showModal();
+});
 
-$('saveHome').onclick = async () => {
-  const address = $('homeAddress').value.trim();
+on('saveHome', 'click', async () => {
+  const address = $('homeAddress')?.value.trim() || '';
 
   if (!address) {
     alert('Informe o endereço de partida.');
@@ -195,11 +231,12 @@ $('saveHome').onclick = async () => {
   };
 
   localStorage.setItem('flrota.home', JSON.stringify(home));
-  $('homeDialog').close();
-  await recalc();
-};
+  $('homeDialog')?.close();
 
-$('geoBtn').onclick = () => getCurrentLocation(true);
+  await recalc();
+});
+
+on('geoBtn', 'click', () => getCurrentLocation(true));
 
 /* =========================================================
    GPS
@@ -232,8 +269,9 @@ function getCurrentLocation(showAlert = false) {
 
           localStorage.setItem('flrota.home', JSON.stringify(home));
 
-          const dialog = $('homeDialog');
-          if (dialog?.open) dialog.close();
+          if ($('homeDialog')?.open) {
+            $('homeDialog').close();
+          }
 
           recalc();
         }
@@ -286,6 +324,7 @@ function startLocationTracking() {
 
 function updateDriverPosition(lat, lon) {
   currentPosition = { lat, lon };
+
   if (!map || !window.L) return;
 
   const icon = L.divIcon({
@@ -312,83 +351,127 @@ function updateDriverPosition(lat, lon) {
 }
 
 /* =========================================================
-   MAPA
+   STATUS DO MAPA
+========================================================= */
+
+function setMapStatus(message) {
+  const element = $('mapStatus');
+  if (element) element.textContent = message;
+}
+
+/* =========================================================
+   MAPA - INICIALIZAÇÃO PROTEGIDA
 ========================================================= */
 
 function initMap() {
+  if (map || mapStarting) return;
+
   if (!window.L) {
-    console.error('Leaflet não carregado.');
-    setMapStatus('Erro ao carregar o sistema do mapa. Atualize a página.');
+    showMapError('Aguardando carregamento do sistema do mapa...');
     return;
   }
 
   const mapElement = $('map');
+
   if (!mapElement) {
-    console.error('Elemento #map não encontrado no HTML.');
+    showMapError('Não encontrei a área do mapa no HTML.');
     return;
   }
 
-  if (map) return;
+  mapStarting = true;
 
-  map = L.map('map', {
-    zoomControl: true,
-    attributionControl: true
-  }).setView([-23.5505, -46.6333], 12);
+  try {
+    map = L.map(mapElement, {
+      zoomControl: true,
+      attributionControl: true
+    }).setView([-23.5505, -46.6333], 12);
 
-  // URL sem subdomínio para simplificar o carregamento dos blocos do mapa.
-  const tileLayer = L.tileLayer(
-    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors'
-    }
-  );
+    const tileLayer = L.tileLayer(
+      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }
+    );
 
-  tileLayer.addTo(map);
+    tileLayer.addTo(map);
 
-  tileLayer.on('tileerror', () => {
-    setMapStatus('Falha ao carregar as imagens do mapa. Verifique sua conexão.');
-  });
+    tileLayer.on('tileerror', () => {
+      setMapStatus('Falha ao carregar imagens do mapa. Verifique a conexão.');
+    });
 
-  tileLayer.on('load', () => {
-    if (!parcels.length) {
-      setMapStatus('Mapa carregado • adicione endereços para montar sua rota.');
-    }
-  });
-
-  const locateButton = L.control({ position: 'topright' });
-
-  locateButton.onAdd = function() {
-    const button = L.DomUtil.create('button', 'map-location-control');
-    button.type = 'button';
-    button.innerHTML = '⌖';
-    button.title = 'Minha localização';
-
-    L.DomEvent.disableClickPropagation(button);
-
-    L.DomEvent.on(button, 'click', () => {
-      if (currentPosition) {
-        map.setView([currentPosition.lat, currentPosition.lon], 17);
-      } else {
-        getCurrentLocation();
+    tileLayer.on('load', () => {
+      if (!parcels.length) {
+        setMapStatus('Mapa carregado • adicione endereços para montar sua rota.');
       }
     });
 
-    return button;
-  };
+    const locateButton = L.control({
+      position: 'topright'
+    });
 
-  locateButton.addTo(map);
+    locateButton.onAdd = function() {
+      const button = L.DomUtil.create(
+        'button',
+        'map-location-control'
+      );
 
-  setTimeout(() => map.invalidateSize(), 300);
+      button.type = 'button';
+      button.innerHTML = '⌖';
+      button.title = 'Minha localização';
+
+      L.DomEvent.disableClickPropagation(button);
+
+      L.DomEvent.on(button, 'click', () => {
+        if (currentPosition) {
+          map.setView(
+            [currentPosition.lat, currentPosition.lon],
+            17
+          );
+        } else {
+          getCurrentLocation();
+        }
+      });
+
+      return button;
+    };
+
+    locateButton.addTo(map);
+
+    setMapStatus('Mapa iniciado • aguardando carregamento das imagens.');
+
+    setTimeout(() => {
+      map?.invalidateSize();
+    }, 500);
+
+    console.log('FL ROTA: mapa iniciado com sucesso.');
+
+  } catch (error) {
+    console.error('Erro ao iniciar mapa:', error);
+    map = null;
+    showMapError('Erro ao iniciar o mapa. Confira a conexão e atualize a página.');
+  } finally {
+    mapStarting = false;
+  }
 }
 
 /* =========================================================
-   STATUS DO MAPA
+   AGUARDAR LEAFLET
 ========================================================= */
 
-function setMapStatus(text) {
-  const element = $('mapStatus');
-  if (element) element.textContent = text;
+function waitForLeaflet(attempt = 0) {
+  if (window.L) {
+    initMap();
+    return;
+  }
+
+  if (attempt >= 20) {
+    showMapError('O sistema do mapa não carregou. Verifique a conexão.');
+    console.error('Leaflet não foi carregado após várias tentativas.');
+    return;
+  }
+
+  setTimeout(() => waitForLeaflet(attempt + 1), 500);
 }
 
 /* =========================================================
@@ -397,7 +480,9 @@ function setMapStatus(text) {
 
 async function geocode(address) {
   try {
-    const query = address.includes('Brasil') ? address : address + ', Brasil';
+    const query = address.includes('Brasil')
+      ? address
+      : address + ', Brasil';
 
     const url =
       'https://nominatim.openstreetmap.org/search' +
@@ -405,18 +490,22 @@ async function geocode(address) {
       encodeURIComponent(query);
 
     const response = await fetch(url, {
-      headers: { 'Accept': 'application/json' }
+      headers: { Accept: 'application/json' }
     });
 
-    if (!response.ok) throw new Error('Erro HTTP ' + response.status);
+    if (!response.ok) {
+      throw new Error('Erro HTTP ' + response.status);
+    }
 
     const data = await response.json();
+
     if (!data.length) return null;
 
     return {
       lat: Number(data[0].lat),
       lon: Number(data[0].lon)
     };
+
   } catch (error) {
     console.error('Erro ao localizar endereço:', error);
     return null;
@@ -442,12 +531,19 @@ async function requestRoute(start, destinations) {
 
   try {
     const response = await fetch(url);
-    if (!response.ok) throw new Error('OSRM HTTP ' + response.status);
+
+    if (!response.ok) {
+      throw new Error('OSRM HTTP ' + response.status);
+    }
 
     const data = await response.json();
-    if (data.code !== 'Ok' || !data.routes?.length) return null;
+
+    if (data.code !== 'Ok' || !data.routes?.length) {
+      return null;
+    }
 
     return data.routes[0];
+
   } catch (error) {
     console.error('Erro ao calcular rota:', error);
     return null;
@@ -455,18 +551,22 @@ async function requestRoute(start, destinations) {
 }
 
 /* =========================================================
-   LIMPAR MAPA
+   LIMPAR MARCADORES E ROTA
 ========================================================= */
 
 function clearDeliveryMarkers() {
   deliveryMarkers.forEach(marker => {
     if (map) map.removeLayer(marker);
   });
+
   deliveryMarkers = [];
 }
 
 function clearRoute() {
-  if (routeLayer && map) map.removeLayer(routeLayer);
+  if (routeLayer && map) {
+    map.removeLayer(routeLayer);
+  }
+
   routeLayer = null;
 }
 
@@ -476,6 +576,7 @@ function clearRoute() {
 
 function drawDeliveryMarkers(order) {
   clearDeliveryMarkers();
+
   if (!map) return;
 
   order.forEach((parcel, index) => {
@@ -487,13 +588,18 @@ function drawDeliveryMarkers(order) {
       popupAnchor: [0, -34]
     });
 
-    const marker = L.marker([parcel.lat, parcel.lon], { icon }).addTo(map);
+    const marker = L.marker(
+      [Number(parcel.lat), Number(parcel.lon)],
+      { icon }
+    ).addTo(map);
 
     marker.bindPopup(`
       <div style="min-width:190px">
         <b>Entrega ${index + 1}</b><br><br>
         ${escapeHtml(parcel.address)}<br><br>
-        <span style="color:#666">${escapeHtml(parcel.code || 'Sem código')}</span>
+        <span style="color:#666">
+          ${escapeHtml(parcel.code || 'Sem código')}
+        </span>
       </div>
     `);
 
@@ -507,6 +613,7 @@ function drawDeliveryMarkers(order) {
 
 function drawRoute(route) {
   clearRoute();
+
   if (!map || !route?.geometry) return;
 
   routeLayer = L.geoJSON(route.geometry, {
@@ -520,8 +627,11 @@ function drawRoute(route) {
   }).addTo(map);
 
   const bounds = routeLayer.getBounds();
+
   if (bounds.isValid()) {
-    map.fitBounds(bounds, { padding: [30, 30] });
+    map.fitBounds(bounds, {
+      padding: [30, 30]
+    });
   }
 }
 
@@ -531,31 +641,58 @@ function drawRoute(route) {
 
 function updateRouteInfo(route, stops) {
   if (!route) {
-    $('routeDistance').textContent = '--';
-    $('routeTime').textContent = '--';
-    $('routeStops').textContent = stops || 0;
+    setText('routeDistance', '--');
+    setText('routeTime', '--');
+    setText('routeStops', stops || 0);
     return;
   }
 
   const distanceKm = route.distance / 1000;
   const minutes = Math.round(route.duration / 60);
 
-  $('routeDistance').textContent =
-    distanceKm < 10 ? distanceKm.toFixed(1) + ' km' : Math.round(distanceKm) + ' km';
+  setText(
+    'routeDistance',
+    distanceKm < 10
+      ? distanceKm.toFixed(1) + ' km'
+      : Math.round(distanceKm) + ' km'
+  );
 
   if (minutes < 60) {
-    $('routeTime').textContent = minutes + ' min';
+    setText('routeTime', minutes + ' min');
   } else {
     const hours = Math.floor(minutes / 60);
     const remaining = minutes % 60;
-    $('routeTime').textContent = hours + 'h ' + remaining + 'min';
+
+    setText(
+      'routeTime',
+      hours + 'h ' + remaining + 'min'
+    );
   }
 
-  $('routeStops').textContent = stops || 0;
+  setText('routeStops', stops || 0);
 }
 
 /* =========================================================
-   RECALCULAR ROTA COMPLETA
+   DISTÂNCIA APROXIMADA
+========================================================= */
+
+function distance(a, b) {
+  const lat =
+    ((Number(a.lat) + Number(b.lat)) / 2) *
+    Math.PI / 180;
+
+  const x = (Number(a.lat) - Number(b.lat)) * 111.32;
+
+  const y =
+    (Number(a.lon) - Number(b.lon)) *
+    111.32 *
+    Math.cos(lat);
+
+  return Math.sqrt(x * x + y * y);
+}
+
+/* =========================================================
+   RECALCULAR ROTA
 ========================================================= */
 
 async function recalc() {
@@ -579,8 +716,10 @@ async function recalc() {
 
     for (const parcel of pending) {
       const hasCoordinates =
-        parcel.lat !== null && parcel.lat !== undefined &&
-        parcel.lon !== null && parcel.lon !== undefined &&
+        parcel.lat !== null &&
+        parcel.lat !== undefined &&
+        parcel.lon !== null &&
+        parcel.lon !== undefined &&
         Number.isFinite(Number(parcel.lat)) &&
         Number.isFinite(Number(parcel.lon));
 
@@ -594,11 +733,16 @@ async function recalc() {
       }
     }
 
-    localStorage.setItem('flrota.parcels', JSON.stringify(parcels));
+    localStorage.setItem(
+      'flrota.parcels',
+      JSON.stringify(parcels)
+    );
 
     const located = pending.filter(p =>
-      p.lat !== null && p.lat !== undefined &&
-      p.lon !== null && p.lon !== undefined &&
+      p.lat !== null &&
+      p.lat !== undefined &&
+      p.lon !== null &&
+      p.lon !== undefined &&
       Number.isFinite(Number(p.lat)) &&
       Number.isFinite(Number(p.lon))
     );
@@ -609,24 +753,36 @@ async function recalc() {
       return;
     }
 
-    // Durante a navegação, a rota parte da posição GPS atual.
-    // Fora da navegação, usa o ponto de partida salvo ou o GPS.
     let start = null;
 
     if (navigationActive && currentPosition) {
       start = { ...currentPosition };
-    } else if (home?.lat !== null && home?.lat !== undefined &&
-               home?.lon !== null && home?.lon !== undefined) {
+
+    } else if (
+      home?.lat !== null &&
+      home?.lat !== undefined &&
+      home?.lon !== null &&
+      home?.lon !== undefined
+    ) {
       start = {
         lat: Number(home.lat),
         lon: Number(home.lon)
       };
-    } else if (home?.address && home.address !== 'Minha localização atual') {
+
+    } else if (
+      home?.address &&
+      home.address !== 'Minha localização atual'
+    ) {
       start = await geocode(home.address);
     }
 
-    if (!start && currentPosition) start = { ...currentPosition };
-    if (!start) start = await getCurrentLocation();
+    if (!start && currentPosition) {
+      start = { ...currentPosition };
+    }
+
+    if (!start) {
+      start = await getCurrentLocation();
+    }
 
     if (!start) {
       setMapStatus('Defina o ponto de partida ou permita o GPS.');
@@ -637,24 +793,36 @@ async function recalc() {
     const ordered = [];
     let current = { ...start };
 
-    // Ordenação inicial pela entrega mais próxima.
     while (remaining.length) {
-      remaining.sort((a, b) => distance(current, a) - distance(current, b));
+      remaining.sort(
+        (a, b) => distance(current, a) - distance(current, b)
+      );
+
       const next = remaining.shift();
+
       ordered.push(next);
-      current = { lat: Number(next.lat), lon: Number(next.lon) };
+
+      current = {
+        lat: Number(next.lat),
+        lon: Number(next.lon)
+      };
     }
 
     window.flrotaOrder = ordered;
 
     drawDeliveryMarkers(ordered);
+
     setMapStatus('Calculando rota pelas ruas...');
 
     const route = await requestRoute(start, ordered);
 
     if (!route) {
       updateRouteInfo(null, ordered.length);
-      setMapStatus('Não foi possível calcular a rota. Confira os endereços e tente novamente.');
+
+      setMapStatus(
+        'Não foi possível calcular a rota. Confira os endereços e tente novamente.'
+      );
+
       return;
     }
 
@@ -668,27 +836,21 @@ async function recalc() {
     );
 
     render();
+
+  } catch (error) {
+    console.error('Erro ao recalcular rota:', error);
+    setMapStatus('Erro ao montar a rota. Tente novamente.');
+
   } finally {
     routingBusy = false;
   }
 }
 
 /* =========================================================
-   DISTÂNCIA APROXIMADA
-========================================================= */
-
-function distance(a, b) {
-  const lat = ((Number(a.lat) + Number(b.lat)) / 2) * Math.PI / 180;
-  const x = (Number(a.lat) - Number(b.lat)) * 111.32;
-  const y = (Number(a.lon) - Number(b.lon)) * 111.32 * Math.cos(lat);
-  return Math.sqrt(x * x + y * y);
-}
-
-/* =========================================================
    NAVEGAÇÃO
 ========================================================= */
 
-$('navBtn').onclick = async () => {
+on('navBtn', 'click', async () => {
   if (!navigationActive) {
     const next = window.flrotaOrder?.find(p => !p.done);
 
@@ -698,33 +860,41 @@ $('navBtn').onclick = async () => {
     }
 
     navigationActive = true;
-    $('navBtn').textContent = '⏹ ENCERRAR NAVEGAÇÃO';
+    setText('navBtn', '⏹ ENCERRAR NAVEGAÇÃO');
+
     setMapStatus('Obtendo sua localização...');
 
     const position = await getCurrentLocation();
 
     if (!position) {
       navigationActive = false;
-      $('navBtn').textContent = 'INICIAR ROTA →';
+      setText('navBtn', 'INICIAR ROTA →');
       return;
     }
 
     lastRoutePosition = { ...position };
+
     startLocationTracking();
 
-    if (map) map.setView([position.lat, position.lon], 16);
+    if (map) {
+      map.setView([position.lat, position.lon], 16);
+    }
 
     await recalc();
+
     setMapStatus('Navegação ativa • siga a rota vermelha');
+
   } else {
     stopNavigation();
   }
-};
+});
 
 function stopNavigation() {
   navigationActive = false;
   lastRoutePosition = null;
-  $('navBtn').textContent = 'INICIAR ROTA →';
+
+  setText('navBtn', 'INICIAR ROTA →');
+
   setMapStatus('Navegação encerrada.');
 }
 
@@ -733,16 +903,20 @@ function stopNavigation() {
 ========================================================= */
 
 async function maybeRecalculateNavigation() {
-  if (!navigationActive || routingBusy || !currentPosition) return;
+  if (!navigationActive || routingBusy || !currentPosition) {
+    return;
+  }
 
   if (!lastRoutePosition) {
     lastRoutePosition = { ...currentPosition };
     return;
   }
 
-  const moved = distance(currentPosition, lastRoutePosition);
+  const moved = distance(
+    currentPosition,
+    lastRoutePosition
+  );
 
-  // Atualiza a rota após aproximadamente 300 metros.
   if (moved >= 0.3) {
     lastRoutePosition = { ...currentPosition };
     await recalc();
@@ -754,12 +928,12 @@ async function maybeRecalculateNavigation() {
 ========================================================= */
 
 function openLabelCamera() {
-  $('ocrFile').click();
+  $('ocrFile')?.click();
 }
 
-$('ocrBtn').onclick = openLabelCamera;
-$('scanBtn').onclick = openLabelCamera;
-$('stopBtn').onclick = stopCamera;
+on('ocrBtn', 'click', openLabelCamera);
+on('scanBtn', 'click', openLabelCamera);
+on('stopBtn', 'click', stopCamera);
 
 function stopCamera() {
   if (stream) {
@@ -767,24 +941,35 @@ function stopCamera() {
     stream = null;
   }
 
-  $('cameraWrap').style.display = 'none';
+  const cameraWrap = $('cameraWrap');
+
+  if (cameraWrap) {
+    cameraWrap.style.display = 'none';
+  }
 }
 
-$('ocrFile').onchange = async event => {
+on('ocrFile', 'change', async event => {
   const file = event.target.files?.[0];
+
   if (!file) return;
 
-  $('ocrStatus').textContent = 'Fotografia recebida. Iniciando leitura...';
+  setText('ocrStatus', 'Fotografia recebida. Iniciando leitura...');
 
   try {
     await readLabelOCR(file);
+
   } catch (error) {
     console.error('Erro no processamento da foto:', error);
-    alert('Erro ao processar a fotografia: ' + error.message);
+
+    alert(
+      'Erro ao processar a fotografia: ' +
+      error.message
+    );
+
   } finally {
     event.target.value = '';
   }
-};
+});
 
 async function readLabelOCR(file) {
   const status = $('ocrStatus');
@@ -795,46 +980,80 @@ async function readLabelOCR(file) {
   }
 
   if (!window.Tesseract) {
-    status.textContent = 'Motor OCR não carregado.';
-    alert('O leitor de texto não carregou. Verifique sua conexão com a internet.');
+    setText('ocrStatus', 'Motor OCR não carregado.');
+
+    alert(
+      'O leitor de texto não carregou. Verifique sua conexão com a internet.'
+    );
+
     return;
   }
 
   ocrBusy = true;
-  status.textContent = 'Preparando leitura da etiqueta...';
+
+  setText('ocrStatus', 'Preparando leitura da etiqueta...');
 
   try {
-    const result = await window.Tesseract.recognize(file, 'por+eng', {
-      logger: message => {
-        if (message.status === 'recognizing text') {
-          status.textContent =
-            'Lendo etiqueta... ' +
-            Math.round((message.progress || 0) * 100) + '%';
-        } else if (message.status) {
-          status.textContent = 'Processando: ' + message.status;
+    const result = await window.Tesseract.recognize(
+      file,
+      'por+eng',
+      {
+        logger: message => {
+          if (message.status === 'recognizing text') {
+            setText(
+              'ocrStatus',
+              'Lendo etiqueta... ' +
+              Math.round((message.progress || 0) * 100) +
+              '%'
+            );
+
+          } else if (message.status) {
+            setText(
+              'ocrStatus',
+              'Processando: ' + message.status
+            );
+          }
         }
       }
-    });
+    );
 
     const rawText = result?.data?.text || '';
     const recognizedText = rawText.trim();
 
-    console.log('TEXTO RECONHECIDO PELO OCR:', recognizedText);
+    console.log(
+      'TEXTO RECONHECIDO PELO OCR:',
+      recognizedText
+    );
 
     if (!recognizedText) {
-      status.textContent = 'Nenhum texto encontrado.';
-      alert('Não foi possível reconhecer texto nessa fotografia. Tente outra foto.');
+      setText('ocrStatus', 'Nenhum texto encontrado.');
+
+      alert(
+        'Não foi possível reconhecer texto nessa fotografia. Tente outra foto.'
+      );
+
       return;
     }
 
     const parsed = parseLabelText(recognizedText);
-    status.textContent = 'Leitura concluída. Confira o texto reconhecido.';
+
+    setText(
+      'ocrStatus',
+      'Leitura concluída. Confira o texto reconhecido.'
+    );
 
     review('', parsed.address || recognizedText);
+
   } catch (error) {
     console.error('Falha no OCR:', error);
-    status.textContent = 'Falha na leitura da etiqueta.';
-    alert('Erro no reconhecimento: ' + (error.message || error));
+
+    setText('ocrStatus', 'Falha na leitura da etiqueta.');
+
+    alert(
+      'Erro no reconhecimento: ' +
+      (error.message || error)
+    );
+
   } finally {
     ocrBusy = false;
   }
@@ -864,7 +1083,8 @@ function parseLabelText(raw) {
     /\b(RUA|R\.|AVENIDA|AV\.|TRAVESSA|ESTRADA|RODOVIA|ALAMEDA|PRACA|LARGO|VIELA|ROD\.)\b/i
       .test(line);
 
-  const hasCep = line => /\b\d{5}[- ]?\d{3}\b/.test(line);
+  const hasCep = line =>
+    /\b\d{5}[- ]?\d{3}\b/.test(line);
 
   const cleanLines = lines.filter(line =>
     !isNoise(line) || isStreet(line) || hasCep(line)
@@ -878,16 +1098,26 @@ function parseLabelText(raw) {
   );
 
   if (recipientIndex >= 0) {
-    selected = cleanLines.slice(recipientIndex + 1, recipientIndex + 8);
+    selected = cleanLines.slice(
+      recipientIndex + 1,
+      recipientIndex + 8
+    );
   }
 
   if (!selected.some(isStreet)) {
     const streetIndex = cleanLines.findIndex(isStreet);
-    if (streetIndex >= 0) selected = cleanLines.slice(streetIndex, streetIndex + 6);
+
+    if (streetIndex >= 0) {
+      selected = cleanLines.slice(
+        streetIndex,
+        streetIndex + 6
+      );
+    }
   }
 
   if (!selected.length) {
     const cepIndex = cleanLines.findIndex(hasCep);
+
     if (cepIndex >= 0) {
       selected = cleanLines.slice(
         Math.max(0, cepIndex - 3),
@@ -903,7 +1133,9 @@ function parseLabelText(raw) {
   selected = [...new Set(selected)];
 
   return {
-    address: selected.length ? selected.join(', ') : ''
+    address: selected.length
+      ? selected.join(', ')
+      : ''
   };
 }
 
@@ -919,6 +1151,7 @@ if (addressSearch) {
       event.preventDefault();
 
       const address = addressSearch.value.trim();
+
       if (!address) return;
 
       review('', address);
@@ -928,31 +1161,39 @@ if (addressSearch) {
 }
 
 /* =========================================================
-   BOTÃO DE ATUALIZAR ROTA
+   ATUALIZAR ROTA
 ========================================================= */
 
-$('routeBtn').onclick = async () => {
+on('routeBtn', 'click', async () => {
   await recalc();
-};
+});
 
 /* =========================================================
-   INICIALIZAÇÃO
+   INICIALIZAÇÃO DO APLICATIVO
 ========================================================= */
 
 function initializeApp() {
-  initMap();
+  console.log('FL ROTA: iniciando aplicativo...');
+
   render();
+
+  waitForLeaflet();
+
   startLocationTracking();
 
   if (parcels.length) {
-    setTimeout(() => recalc(), 700);
+    setTimeout(() => recalc(), 1000);
   } else {
     setMapStatus('Adicione endereços para montar sua rota.');
   }
 }
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initializeApp);
+  document.addEventListener(
+    'DOMContentLoaded',
+    initializeApp,
+    { once: true }
+  );
 } else {
   initializeApp();
 }
@@ -963,8 +1204,28 @@ if (document.readyState === 'loading') {
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(error => {
-      console.error('Erro no Service Worker:', error);
-    });
+    navigator.serviceWorker
+      .register('./sw.js')
+      .catch(error => {
+        console.error(
+          'Erro no Service Worker:',
+          error
+        );
+      });
   });
 }
+
+/* =========================================================
+   ERROS GERAIS
+========================================================= */
+
+window.addEventListener('error', event => {
+  console.error(
+    'Erro JavaScript no FL ROTA:',
+    event.message,
+    event.filename,
+    event.lineno
+  );
+});
+
+console.log('FL ROTA: arquivo app.js carregado.');
