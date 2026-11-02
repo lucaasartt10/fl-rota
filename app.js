@@ -1,4 +1,3 @@
-
 const $ = id => document.getElementById(id);
 
 const readStorage = (key, fallback) => {
@@ -12,9 +11,26 @@ const readStorage = (key, fallback) => {
 
 let parcels = readStorage('flrota.parcels', []);
 let home = readStorage('flrota.home', null);
+
 let pendingCode = '';
 let stream = null;
 let ocrBusy = false;
+
+let map = null;
+let driverMarker = null;
+let deliveryMarkers = [];
+let routeLayer = null;
+let locationWatchId = null;
+let currentPosition = null;
+let navigationActive = false;
+let lastRoutePosition = null;
+let routingBusy = false;
+
+window.flrotaOrder = [];
+
+/* =========================================================
+   UTILIDADES
+========================================================= */
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, c => ({
@@ -27,45 +43,100 @@ function escapeHtml(value) {
 }
 
 function save() {
-  localStorage.setItem('flrota.parcels', JSON.stringify(parcels));
+  localStorage.setItem(
+    'flrota.parcels',
+    JSON.stringify(parcels)
+  );
+
   render();
   recalc();
 }
 
 function render() {
   $('count').textContent = parcels.length;
-  $('pending').textContent = parcels.filter(p => !p.done).length;
-  $('done').textContent = parcels.filter(p => p.done).length;
+
+  $('pending').textContent =
+    parcels.filter(p => !p.done).length;
+
+  $('done').textContent =
+    parcels.filter(p => p.done).length;
 
   $('list').innerHTML = parcels.length
     ? parcels.map((p, i) => `
       <div class="parcel">
-        <span class="pill">${p.done ? 'Entregue' : 'Pendente'}</span>
-        <strong>${escapeHtml(p.address)}</strong>
-        <small>${escapeHtml(p.code || 'Sem código')} · ${p.lat ? 'Localizado' : 'Aguardando localização'}</small>
+
+        <span class="pill">
+          ${p.done ? 'Entregue' : 'Pendente'}
+        </span>
+
+        <strong>
+          ${escapeHtml(p.address)}
+        </strong>
+
+        <small>
+          ${escapeHtml(p.code || 'Sem código')}
+          ·
+          ${p.lat && p.lon
+            ? 'Localizado'
+            : 'Aguardando localização'}
+        </small>
+
         <div style="display:flex;gap:7px;margin-top:9px">
-          <button class="secondary" style="padding:7px 10px;font-size:11px"
-            onclick="toggleDone(${i})">${p.done ? 'Reabrir' : 'Marcar entregue'}</button>
-          <button class="danger" style="padding:7px 10px;font-size:11px"
-            onclick="removeParcel(${i})">Excluir</button>
+
+          <button
+            class="secondary"
+            style="padding:7px 10px;font-size:11px"
+            onclick="toggleDone(${i})"
+          >
+            ${p.done ? 'Reabrir' : 'Marcar entregue'}
+          </button>
+
+          <button
+            class="danger"
+            style="padding:7px 10px;font-size:11px"
+            onclick="removeParcel(${i})"
+          >
+            Excluir
+          </button>
+
         </div>
+
       </div>
     `).join('')
     : '<div class="muted">Nenhum pacote cadastrado ainda.</div>';
 }
 
+
+/* =========================================================
+   PACOTES
+========================================================= */
+
 window.toggleDone = i => {
+
+  if (!parcels[i]) return;
+
   parcels[i].done = !parcels[i].done;
+
   save();
 };
+
 
 window.removeParcel = i => {
+
   parcels.splice(i, 1);
+
   save();
 };
 
+
+/* =========================================================
+   CONFIRMAÇÃO DE PACOTE
+========================================================= */
+
 function review(code, address) {
+
   pendingCode = code || '';
+
   $('reviewCode').value = code || '';
   $('reviewAddress').value = address || '';
 
@@ -78,436 +149,607 @@ function review(code, address) {
   $('reviewAddress').focus();
 }
 
-$('cancelReview').onclick = () => $('reviewDialog').close();
+
+$('cancelReview').onclick = () => {
+  $('reviewDialog').close();
+};
+
 
 $('confirmReview').onclick = () => {
-  const code = $('reviewCode').value.trim();
-  const address = $('reviewAddress').value.trim();
+
+  const code =
+    $('reviewCode').value.trim();
+
+  const address =
+    $('reviewAddress').value.trim();
 
   if (!address) {
     alert('Informe o endereço antes de salvar.');
     return;
   }
 
-  if (code && parcels.some(p => p.code === code)) {
+  if (
+    code &&
+    parcels.some(p => p.code === code)
+  ) {
     alert('Esse código já foi cadastrado.');
     return;
   }
 
-  if (parcels.some(p =>
-    p.address.toLowerCase() === address.toLowerCase() && !p.done
-  )) {
-    alert('Esse endereço já está cadastrado como pendente.');
+  if (
+    parcels.some(
+      p =>
+        p.address.toLowerCase() ===
+        address.toLowerCase() &&
+        !p.done
+    )
+  ) {
+    alert(
+      'Esse endereço já está cadastrado como pendente.'
+    );
     return;
   }
 
   parcels.push({
+
     code: code || '',
+
     address,
+
     done: false,
+
     created: Date.now(),
+
     lat: null,
+
     lon: null
+
   });
 
   $('reviewDialog').close();
+
   $('code').value = '';
   $('address').value = '';
+
   save();
 };
 
+
 $('addBtn').onclick = () => {
-  review($('code').value.trim(), $('address').value.trim());
+
+  review(
+    $('code').value.trim(),
+    $('address').value.trim()
+  );
+
 };
+
 
 $('manualBtn').onclick = () => {
+
   $('code').focus();
-  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+
+  window.scrollTo({
+    top: document.body.scrollHeight,
+    behavior: 'smooth'
+  });
+
 };
+
 
 $('clearBtn').onclick = () => {
-  if (confirm('Apagar todos os pacotes deste aparelho?')) {
+
+  if (
+    confirm(
+      'Apagar todos os pacotes deste aparelho?'
+    )
+  ) {
+
     parcels = [];
+
+    window.flrotaOrder = [];
+
     save();
+
   }
+
 };
+
+
+/* =========================================================
+   PONTO DE PARTIDA
+========================================================= */
 
 $('homeBtn').onclick = () => {
-  $('homeAddress').value = home?.address || '';
+
+  $('homeAddress').value =
+    home?.address || '';
+
   $('homeDialog').showModal();
+
 };
 
+
 $('saveHome').onclick = async () => {
-  const address = $('homeAddress').value.trim();
+
+  const address =
+    $('homeAddress').value.trim();
 
   if (!address) {
-    alert('Informe o endereço de partida.');
+
+    alert(
+      'Informe o endereço de partida.'
+    );
+
     return;
   }
 
   home = {
+
     address,
+
     lat: home?.lat || null,
+
     lon: home?.lon || null
+
   };
 
-  localStorage.setItem('flrota.home', JSON.stringify(home));
+  localStorage.setItem(
+    'flrota.home',
+    JSON.stringify(home)
+  );
+
   $('homeDialog').close();
-  recalc();
+
+  await recalc();
+
 };
+
 
 $('geoBtn').onclick = () => {
+
+  getCurrentLocation(true);
+
+};
+
+
+/* =========================================================
+   GPS
+========================================================= */
+
+function getCurrentLocation(showAlert = false) {
+
   if (!navigator.geolocation) {
-    alert('Geolocalização não disponível.');
-    return;
+
+    if (showAlert) {
+      alert(
+        'Geolocalização não disponível neste aparelho.'
+      );
+    }
+
+    return Promise.resolve(null);
   }
 
-  navigator.geolocation.getCurrentPosition(pos => {
-    home = {
-      address: 'Minha localização atual',
-      lat: pos.coords.latitude,
-      lon: pos.coords.longitude
-    };
+  setMapStatus(
+    'Obtendo localização do motorista...'
+  );
 
-    localStorage.setItem('flrota.home', JSON.stringify(home));
-    $('homeDialog').close();
-    recalc();
-  }, () => {
-    alert('Não foi possível obter a localização. Verifique a permissão do navegador.');
-  }, {
-    enableHighAccuracy: true,
-    timeout: 12000
-  });
-};
+  return new Promise(resolve => {
 
-/* FOTOGRAFIA E OCR */
+    navigator.geolocation.getCurrentPosition(
 
-function openLabelCamera() {
-  $('ocrFile').click();
-}
+      position => {
 
-$('ocrBtn').onclick = openLabelCamera;
-$('scanBtn').onclick = openLabelCamera;
+        updateDriverPosition(
+          position.coords.latitude,
+          position.coords.longitude
+        );
 
-$('stopBtn').onclick = stopCamera;
+        if (showAlert) {
 
-function stopCamera() {
-  if (stream) {
-    stream.getTracks().forEach(track => track.stop());
-    stream = null;
-  }
-  $('cameraWrap').style.display = 'none';
-}
+          home = {
 
-$('ocrFile').onchange = async event => {
-  const file = event.target.files?.[0];
+            address:
+              'Minha localização atual',
 
-  if (!file) return;
+            lat:
+              position.coords.latitude,
 
-  $('ocrStatus').textContent = 'Fotografia recebida. Iniciando leitura...';
+            lon:
+              position.coords.longitude
 
-  try {
-    await readLabelOCR(file);
-  } catch (error) {
-    console.error('Erro no processamento da foto:', error);
-    alert('Erro ao processar a fotografia: ' + error.message);
-  } finally {
-    event.target.value = '';
-  }
-};
+          };
 
-async function readLabelOCR(file) {
-  const status = $('ocrStatus');
+          localStorage.setItem(
+            'flrota.home',
+            JSON.stringify(home)
+          );
 
-  if (ocrBusy) {
-    alert('Já existe uma leitura em andamento.');
-    return;
-  }
+          $('homeDialog').close();
 
-  if (!window.Tesseract) {
-    status.textContent = 'Motor OCR não carregado.';
-    alert('O leitor de texto não carregou. Verifique sua conexão com a internet.');
-    return;
-  }
+          recalc();
 
-  ocrBusy = true;
-  status.textContent = 'Preparando leitura da etiqueta...';
-
-  try {
-    const result = await window.Tesseract.recognize(
-      file,
-      'por+eng',
-      {
-        logger: message => {
-          if (message.status === 'recognizing text') {
-            status.textContent =
-              'Lendo etiqueta... ' +
-              Math.round((message.progress || 0) * 100) + '%';
-          } else if (message.status) {
-            status.textContent = 'Processando: ' + message.status;
-          }
         }
+
+        resolve({
+          lat:
+            position.coords.latitude,
+
+          lon:
+            position.coords.longitude
+        });
+
+      },
+
+      error => {
+
+        console.error(
+          'Erro GPS:',
+          error
+        );
+
+        setMapStatus(
+          'Não foi possível obter sua localização.'
+        );
+
+        if (showAlert) {
+
+          alert(
+            'Não foi possível obter sua localização. Verifique a permissão de localização do navegador.'
+          );
+
+        }
+
+        resolve(null);
+
+      },
+
+      {
+        enableHighAccuracy: true,
+
+        timeout: 15000,
+
+        maximumAge: 5000
+
+      }
+
+    );
+
+  });
+
+}
+
+
+function startLocationTracking() {
+
+  if (!navigator.geolocation) return;
+
+  if (locationWatchId !== null) {
+
+    navigator.geolocation.clearWatch(
+      locationWatchId
+    );
+
+  }
+
+  locationWatchId =
+    navigator.geolocation.watchPosition(
+
+      position => {
+
+        updateDriverPosition(
+          position.coords.latitude,
+          position.coords.longitude
+        );
+
+        if (
+          navigationActive &&
+          currentPosition
+        ) {
+
+          maybeRecalculateNavigation();
+
+        }
+
+      },
+
+      error => {
+
+        console.error(
+          'GPS tracking:',
+          error
+        );
+
+      },
+
+      {
+
+        enableHighAccuracy: true,
+
+        maximumAge: 3000,
+
+        timeout: 10000
+
+      }
+
+    );
+
+}
+
+
+function updateDriverPosition(lat, lon) {
+
+  currentPosition = {
+    lat,
+    lon
+  };
+
+  if (!map) return;
+
+  const icon =
+    L.divIcon({
+
+      className: '',
+
+      html:
+        '<div class="driver-marker"></div>',
+
+      iconSize: [22, 22],
+
+      iconAnchor: [11, 11]
+
+    });
+
+
+  if (!driverMarker) {
+
+    driverMarker =
+      L.marker(
+        [lat, lon],
+        {
+          icon,
+          zIndexOffset: 1000
+        }
+      )
+      .addTo(map)
+      .bindPopup(
+        '<b>Você está aqui</b>'
+      );
+
+  } else {
+
+    driverMarker.setLatLng([
+      lat,
+      lon
+    ]);
+
+  }
+
+
+  if (navigationActive) {
+
+    map.setView(
+      [lat, lon],
+      Math.max(map.getZoom(), 15),
+      {
+        animate: true
       }
     );
 
-    const rawText = result?.data?.text || '';
-    const recognizedText = rawText.trim();
-
-    console.log('TEXTO RECONHECIDO PELO OCR:', recognizedText);
-
-    if (!recognizedText) {
-      status.textContent = 'Nenhum texto encontrado.';
-      alert('Não foi possível reconhecer texto nessa fotografia. Tente outra foto.');
-      return;
-    }
-
-    const parsed = parseLabelText(recognizedText);
-
-    status.textContent = 'Leitura concluída. Confira o texto reconhecido.';
-
-    if (parsed.address) {
-      // Se encontrou um endereço, apresenta o endereço para confirmação.
-      review('', parsed.address);
-    } else {
-      // Se não encontrou, apresenta TODO o texto reconhecido.
-      // Não exibe alerta: o usuário poderá corrigir diretamente.
-      review('', recognizedText);
-    }
-
-  } catch (error) {
-    console.error('Falha no OCR:', error);
-    status.textContent = 'Falha na leitura da etiqueta.';
-    alert('Erro no reconhecimento: ' + (error.message || error));
-  } finally {
-    ocrBusy = false;
   }
+
 }
 
-/* IDENTIFICAÇÃO DO ENDEREÇO */
 
-function parseLabelText(raw) {
-  const lines = raw
-    .replace(/\r/g, '\n')
-    .split('\n')
-    .map(line => line.replace(/\s+/g, ' ').trim())
-    .filter(line => line.length > 2);
+/* =========================================================
+   MAPA
+========================================================= */
 
-  const normalize = line =>
-    line.normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toUpperCase();
+function initMap() {
 
-  const isNoise = line =>
-    /RASTREAMENTO|TRACKING|CODIGO DE BARRAS|PEDIDO|ORDER|SHOPEE|SHEIN|TIKTOK|REMETENTE|CNPJ|CPF|TELEFONE|BARCODE|VOLUME|PESO/.test(normalize(line));
+  if (!window.L) {
 
-  const isStreet = line =>
-    /\b(RUA|R\.|AVENIDA|AV\.|TRAVESSA|ESTRADA|RODOVIA|ALAMEDA|PRACA|LARGO|VIELA|ROD\.)\b/i.test(line);
+    console.error(
+      'Leaflet não carregado.'
+    );
 
-  const hasCep = line =>
-    /\b\d{5}[- ]?\d{3}\b/.test(line);
+    setMapStatus(
+      'Erro ao carregar o mapa.'
+    );
 
-  const cleanLines = lines.filter(line =>
-    !isNoise(line) || isStreet(line) || hasCep(line)
-  );
+    return;
 
-  let selected = [];
-
-  const recipientIndex = cleanLines.findIndex(line =>
-    /DESTINATARIO|ENTREGA|SHIP TO|RECEIVER|ENDERECO DE ENTREGA/.test(normalize(line))
-  );
-
-  if (recipientIndex >= 0) {
-    selected = cleanLines.slice(recipientIndex + 1, recipientIndex + 8);
   }
 
-  if (!selected.some(isStreet)) {
-    const streetIndex = cleanLines.findIndex(isStreet);
+  map =
+    L.map('map', {
 
-    if (streetIndex >= 0) {
-      selected = cleanLines.slice(streetIndex, streetIndex + 6);
+      zoomControl: true,
+
+      attributionControl: true
+
+    }).setView(
+      [-23.5505, -46.6333],
+      12
+    );
+
+
+  L.tileLayer(
+    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    {
+      maxZoom: 19,
+
+      attribution:
+        '&copy; OpenStreetMap contributors'
     }
-  }
+  ).addTo(map);
 
-  if (!selected.length) {
-    const cepIndex = cleanLines.findIndex(hasCep);
 
-    if (cepIndex >= 0) {
-      selected = cleanLines.slice(
-        Math.max(0, cepIndex - 3),
-        Math.min(cleanLines.length, cepIndex + 2)
+  const locateButton =
+    L.control({
+      position: 'topright'
+    });
+
+
+  locateButton.onAdd = function() {
+
+    const button =
+      L.DomUtil.create(
+        'button',
+        'map-location-control'
       );
-    }
+
+    button.type = 'button';
+
+    button.innerHTML = '⌖';
+
+    button.title =
+      'Minha localização';
+
+    L.DomEvent.disableClickPropagation(
+      button
+    );
+
+    L.DomEvent.on(
+      button,
+      'click',
+      () => {
+
+        if (currentPosition) {
+
+          map.setView(
+            [
+              currentPosition.lat,
+              currentPosition.lon
+            ],
+            17
+          );
+
+        } else {
+
+          getCurrentLocation();
+
+        }
+
+      }
+    );
+
+    return button;
+
+  };
+
+
+  locateButton.addTo(map);
+
+
+  setTimeout(() => {
+
+    map.invalidateSize();
+
+  }, 300);
+
+}
+
+
+/* =========================================================
+   STATUS DO MAPA
+========================================================= */
+
+function setMapStatus(text) {
+
+  const element =
+    $('mapStatus');
+
+  if (element) {
+
+    element.textContent = text;
+
   }
 
-  selected = selected
-    .filter(line => !isNoise(line) || isStreet(line) || hasCep(line))
-    .filter(line => line.length > 2);
-
-  selected = [...new Set(selected)];
-
-  return {
-    address: selected.length ? selected.join(', ') : ''
-  };
 }
 
-/* PESQUISA MANUAL */
 
-const addressSearch = $('addressSearch');
-
-if (addressSearch) {
-  addressSearch.addEventListener('keydown', event => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-
-      const address = addressSearch.value.trim();
-      if (!address) return;
-
-      review('', address);
-      addressSearch.value = '';
-    }
-  });
-}
-
-/* LOCALIZAÇÃO E ROTA */
+/* =========================================================
+   GEOCODIFICAÇÃO
+========================================================= */
 
 async function geocode(address) {
+
   try {
+
+    const query =
+      address.includes('Brasil')
+        ? address
+        : address + ', Brasil';
+
+
     const url =
-      'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=' +
-      encodeURIComponent(address);
+      'https://nominatim.openstreetmap.org/search' +
+      '?format=jsonv2' +
+      '&limit=1' +
+      '&countrycodes=br' +
+      '&q=' +
+      encodeURIComponent(query);
 
-    const response = await fetch(url);
-    const data = await response.json();
 
-    return data[0]
-      ? { lat: Number(data[0].lat), lon: Number(data[0].lon) }
-      : null;
-  } catch (error) {
-    console.error('Erro ao localizar endereço:', error);
-    return null;
-  }
-}
+    const response =
+      await fetch(url, {
 
-async function recalc() {
-  const pending = parcels.filter(p => !p.done);
+        headers: {
 
-  if (!pending.length) {
-    $('map').textContent = 'Adicione endereços para montar sua rota.';
-    window.flrotaOrder = [];
-    return;
-  }
+          'Accept':
+            'application/json'
 
-  $('map').textContent = 'Localizando endereços...';
+        }
 
-  for (const parcel of pending) {
-    if (!parcel.lat || !parcel.lon) {
-      const location = await geocode(parcel.address);
+      });
 
-      if (location) {
-        parcel.lat = location.lat;
-        parcel.lon = location.lon;
-      }
-    }
-  }
 
-  localStorage.setItem('flrota.parcels', JSON.stringify(parcels));
+    if (!response.ok) {
 
-  const located = pending.filter(p => p.lat && p.lon);
-
-  if (!located.length) {
-    $('map').textContent =
-      'Não foi possível localizar os endereços. Confira rua, número, cidade e CEP.';
-    render();
-    return;
-  }
-
-  let start = home?.lat
-    ? { lat: home.lat, lon: home.lon }
-    : null;
-
-  if (!start && home?.address) {
-    start = await geocode(home.address);
-  }
-
-  if (!start && navigator.geolocation) {
-    start = await new Promise(resolve => {
-      navigator.geolocation.getCurrentPosition(
-        position => resolve({
-          lat: position.coords.latitude,
-          lon: position.coords.longitude
-        }),
-        () => resolve(null),
-        { timeout: 5000 }
+      throw new Error(
+        'Erro HTTP ' +
+        response.status
       );
-    });
-  }
 
-  if (start) {
-    const remaining = [...located];
-    const ordered = [];
-    let current = start;
-
-    while (remaining.length) {
-      remaining.sort((a, b) => distance(current, a) - distance(current, b));
-      const next = remaining.shift();
-      ordered.push(next);
-      current = next;
     }
 
-    window.flrotaOrder = ordered;
-  } else {
-    window.flrotaOrder = located;
+
+    const data =
+      await response.json();
+
+
+    if (!data.length) {
+
+      return null;
+
+    }
+
+
+    return {
+
+      lat:
+        Number(data[0].lat),
+
+      lon:
+        Number(data[0].lon)
+
+    };
+
+
+  } catch (error) {
+
+    console.error(
+      'Erro ao localizar endereço:',
+      error
+    );
+
+    return null;
+
   }
 
-  $('map').innerHTML = `
-    <div style="padding:15px;text-align:left">
-      <b>${located.length} de ${pending.length} endereços localizados</b>
-      <p class="muted">
-        Ordem aproximada por proximidade. A otimização por ruas e trânsito será uma próxima etapa.
-      </p>
-      <ol>
-        ${window.flrotaOrder.map(parcel =>
-          `<li>${escapeHtml(parcel.address)}</li>`
-        ).join('')}
-      </ol>
-    </div>
-  `;
-
-  render();
 }
 
-function distance(a, b) {
-  return Math.hypot(
-    (a.lat - b.lat) * Math.cos(a.lat * Math.PI / 180),
-    a.lon - b.lon
-  );
-}
 
-$('routeBtn').onclick = recalc;
-
-$('navBtn').onclick = () => {
-  const next = (window.flrotaOrder || []).find(p => !p.done);
-
-  if (!next) {
-    alert('Nenhum destino localizado pendente.');
-    return;
-  }
-
-  const url =
-    'https://www.google.com/maps/dir/?api=1&destination=' +
-    encodeURIComponent(next.address) +
-    '&travelmode=driving';
-
-  window.open(url, '_blank');
-};
-
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(error => {
-      console.error('Erro no Service Worker:', error);
-    });
-  });
-}
-
-render();
-0
+/* =========================================================
+   ROTA PELAS RUAS
