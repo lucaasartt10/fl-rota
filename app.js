@@ -1,6 +1,8 @@
+
 /* =========================================================
    FL ROTA - APP.JS
-   Versão com inicialização protegida do mapa
+   Fluxo: criar rota -> salvar -> consultar -> navegar
+   Endereço é a referência da entrega; código de barras não é usado.
 ========================================================= */
 
 const $ = id => document.getElementById(id);
@@ -15,11 +17,10 @@ const readStorage = (key, fallback) => {
 
 let parcels = readStorage('flrota.parcels', []);
 let home = readStorage('flrota.home', null);
-
-let pendingCode = '';
+let savedRoute = readStorage('flrota.savedRoute', null);
+let routeStops = [];
 let stream = null;
 let ocrBusy = false;
-
 let map = null;
 let driverMarker = null;
 let deliveryMarkers = [];
@@ -27,40 +28,29 @@ let routeLayer = null;
 let locationWatchId = null;
 let currentPosition = null;
 let navigationActive = false;
-let lastRoutePosition = null;
 let routingBusy = false;
-let mapStarting = false;
+let appMode = 'create';
+let pendingReviewMode = 'create';
+let recognition = null;
 
 window.flrotaOrder = [];
 
-/* =========================================================
-   PROTEÇÃO DOS ELEMENTOS HTML
-========================================================= */
-
 function on(id, event, callback) {
-  const element = $(id);
-  if (element) element.addEventListener(event, callback);
-  else console.warn('Elemento HTML não encontrado:', id);
+  const el = $(id);
+  if (el) el.addEventListener(event, callback);
 }
 
 function setText(id, value) {
-  const element = $(id);
-  if (element) element.textContent = value;
+  if ($(id)) $(id).textContent = value;
 }
 
 function setValue(id, value) {
-  const element = $(id);
-  if (element) element.value = value;
+  if ($(id)) $(id).value = value;
 }
 
-function showMapError(message) {
-  console.error(message);
-  setMapStatus(message);
+function status(message) {
+  setText('ocrStatus', message);
 }
-
-/* =========================================================
-   UTILIDADES
-========================================================= */
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, c => ({
@@ -69,225 +59,540 @@ function escapeHtml(value) {
     '>': '&gt;',
     '"': '&quot;',
     "'": '&#39;'
-  })[c]);
+  }[c]));
 }
 
-function save() {
+function normalizeAddress(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/\bR\.\s*/g, 'RUA ')
+    .replace(/\bAV\.\s*/g, 'AVENIDA ')
+    .replace(/\bN[º°.]?\s*/g, ' ')
+    .replace(/[.,;#]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function addressKey(value) {
+  return normalizeAddress(value);
+}
+
+function saveData() {
   localStorage.setItem('flrota.parcels', JSON.stringify(parcels));
+  localStorage.setItem('flrota.savedRoute', JSON.stringify(savedRoute));
   render();
-  recalc();
+}
+
+function isLocated(p) {
+  return Number.isFinite(Number(p.lat)) &&
+    Number.isFinite(Number(p.lon)) &&
+    p.lat !== null &&
+    p.lon !== null;
+}
+
+function buildStops(source = parcels) {
+  const groups = new Map();
+
+  source.forEach(p => {
+    const key = addressKey(p.address);
+
+    if (!key) return;
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        address: p.address,
+        packages: [],
+        lat: isLocated(p) ? Number(p.lat) : null,
+        lon: isLocated(p) ? Number(p.lon) : null
+      });
+    }
+
+    const g = groups.get(key);
+    g.packages.push(p);
+
+    if (
+      (!Number.isFinite(Number(g.lat)) ||
+       !Number.isFinite(Number(g.lon))) &&
+      isLocated(p)
+    ) {
+      g.lat = Number(p.lat);
+      g.lon = Number(p.lon);
+    }
+  });
+
+  return [...groups.values()];
 }
 
 function render() {
-  setText('count', parcels.length);
-  setText('pending', parcels.filter(p => !p.done).length);
-  setText('done', parcels.filter(p => p.done).length);
+  const groups = buildStops();
+
+  setText(
+    'packageCount',
+    `${parcels.length} ${parcels.length === 1 ? 'pacote' : 'pacotes'}`
+  );
+
+  setText(
+    'destinationCount',
+    `${groups.length} ${groups.length === 1 ? 'destino' : 'destinos'}`
+  );
+
+  const progress = $('packageProgress');
+
+  if (progress) {
+    progress.style.width =
+      savedRoute && parcels.length ? '100%' : '0%';
+  }
 
   const list = $('list');
+
   if (!list) return;
 
-  list.innerHTML = parcels.length
-    ? parcels.map((p, i) => `
-      <div class="parcel">
-        <span class="pill">${p.done ? 'Entregue' : 'Pendente'}</span>
-        <strong>${escapeHtml(p.address)}</strong>
-        <small>
-          ${escapeHtml(p.code || 'Sem código')}
-          ·
-          ${p.lat !== null && p.lon !== null ? 'Localizado' : 'Aguardando localização'}
-        </small>
-        <div style="display:flex;gap:7px;margin-top:9px">
-          <button class="secondary"
-            style="padding:7px 10px;font-size:11px"
-            onclick="toggleDone(${i})">
-            ${p.done ? 'Reabrir' : 'Marcar entregue'}
-          </button>
-          <button class="danger"
-            style="padding:7px 10px;font-size:11px"
-            onclick="removeParcel(${i})">
-            Excluir
-          </button>
+  if (!groups.length) {
+    list.innerHTML =
+      '<div class="empty">Nenhum endereço cadastrado.<br>Use a câmera ou o microfone para começar.</div>';
+    return;
+  }
+
+  const order = savedRoute?.stops?.length
+    ? savedRoute.stops
+    : groups;
+
+  list.innerHTML = order.map((stop, i) => {
+    const group =
+      groups.find(g => g.key === stop.key) || stop;
+
+    const number = stop.stopNumber || i + 1;
+
+    return `
+      <div class="stop">
+        <div class="stop-number">${number}</div>
+        <div class="stop-info">
+          <strong>${escapeHtml(group.address)}</strong>
+          <small>${group.packages?.length || group.packageCount || 1} pacote(s) neste endereço</small>
         </div>
+        <span class="stop-count">PARADA ${number}</span>
       </div>
-    `).join('')
-    : '<div class="muted">Nenhum pacote cadastrado ainda.</div>';
+    `;
+  }).join('');
 }
 
-/* =========================================================
-   PACOTES
-========================================================= */
+/* CONFIRMAÇÃO DO ENDEREÇO */
 
-window.toggleDone = i => {
-  if (!parcels[i]) return;
-  parcels[i].done = !parcels[i].done;
-  save();
-};
+function openReview(address, mode = 'create') {
+  if (!address || !String(address).trim()) {
+    alert('Não consegui identificar o endereço. Tente novamente ou digite manualmente.');
+    return;
+  }
 
-window.removeParcel = i => {
-  if (!parcels[i]) return;
-  parcels.splice(i, 1);
-  save();
-};
-
-function review(code, address) {
-  pendingCode = code || '';
-
-  setValue('reviewCode', code || '');
-  setValue('reviewAddress', address || '');
-
-  const dialog = $('reviewDialog');
-
-  if (dialog && !dialog.open) dialog.showModal();
-
-  $('reviewAddress')?.focus();
+  pendingReviewMode = mode;
+  setValue('reviewAddress', address.trim());
+  $('reviewDialog')?.showModal();
 }
 
 on('cancelReview', 'click', () => {
   $('reviewDialog')?.close();
 });
 
-on('confirmReview', 'click', () => {
-  const code = $('reviewCode')?.value.trim() || '';
-  const address = $('reviewAddress')?.value.trim() || '';
+on('confirmReview', 'click', async () => {
+  const address = $('reviewAddress')?.value.trim();
 
   if (!address) {
-    alert('Informe o endereço antes de salvar.');
+    alert('Informe o endereço.');
     return;
   }
-
-  if (code && parcels.some(p => p.code === code)) {
-    alert('Esse código já foi cadastrado.');
-    return;
-  }
-
-  if (parcels.some(p =>
-    String(p.address).toLowerCase() === address.toLowerCase() && !p.done
-  )) {
-    alert('Esse endereço já está cadastrado como pendente.');
-    return;
-  }
-
-  parcels.push({
-    code,
-    address,
-    done: false,
-    created: Date.now(),
-    lat: null,
-    lon: null
-  });
 
   $('reviewDialog')?.close();
 
-  setValue('code', '');
-  setValue('address', '');
+  if (pendingReviewMode === 'lookup') {
+    await lookupAddress(address);
+  } else {
+    parcels.push({
+      address,
+      done: false,
+      created: Date.now(),
+      lat: null,
+      lon: null
+    });
 
-  save();
-});
+    savedRoute = null;
 
-on('addBtn', 'click', () => {
-  review(
-    $('code')?.value.trim() || '',
-    $('address')?.value.trim() || ''
-  );
-});
+    saveData();
 
-on('manualBtn', 'click', () => {
-  $('code')?.focus();
-  window.scrollTo({
-    top: document.body.scrollHeight,
-    behavior: 'smooth'
-  });
-});
+    status('Endereço cadastrado. Você pode adicionar o próximo pacote.');
 
-on('clearBtn', 'click', () => {
-  if (confirm('Apagar todos os pacotes deste aparelho?')) {
-    parcels = [];
-    window.flrotaOrder = [];
-    save();
+    await recalcPreview();
   }
 });
 
-/* =========================================================
-   PONTO DE PARTIDA
-========================================================= */
+on('addTypedBtn', 'click', () => {
+  openReview($('addressSearch')?.value || '');
+});
+
+on('addressSearch', 'keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    openReview(e.target.value);
+    e.target.value = '';
+  }
+});
+
+on('saveRouteBtn', 'click', saveRoute);
+
+on('rebuildBtn', 'click', () => {
+  savedRoute = null;
+  saveData();
+  recalcPreview();
+});
+
+/* MODOS DE CRIAÇÃO E CONSULTA */
+
+on('createModeBtn', 'click', () => setMode('create'));
+on('lookupModeBtn', 'click', () => setMode('lookup'));
+
+function setMode(mode) {
+  appMode = mode;
+
+  $('createPanel')?.classList.toggle('hidden', mode !== 'create');
+  $('lookupPanel')?.classList.toggle('hidden', mode !== 'lookup');
+
+  $('createModeBtn')?.classList.toggle('active', mode === 'create');
+  $('lookupModeBtn')?.classList.toggle('active', mode === 'lookup');
+
+  setText(
+    'screenTitle',
+    mode === 'create'
+      ? 'Monte sua rota'
+      : 'Consulte uma entrega'
+  );
+
+  setText(
+    'screenSubtitle',
+    mode === 'create'
+      ? 'Cadastre os destinos e organize suas entregas.'
+      : 'Descubra o número da parada pelo endereço.'
+  );
+
+  setText(
+    'mapModeLabel',
+    mode === 'create'
+      ? 'MAPA DA ROTA'
+      : 'CONSULTA DE ENDEREÇO'
+  );
+}
+
+/* CONSULTA DE PACOTES */
+
+on('lookupSearchBtn', 'click', () => {
+  lookupAddress($('lookupAddress')?.value || '');
+});
+
+on('lookupAddress', 'keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    lookupAddress(e.target.value);
+  }
+});
+
+async function lookupAddress(address) {
+  if (!savedRoute?.stops?.length) {
+    setText(
+      'lookupResult',
+      'Você ainda não salvou uma rota. Crie e salve a rota primeiro.'
+    );
+    return;
+  }
+
+  const key = addressKey(address);
+
+  const found = savedRoute.stops.find(s => s.key === key);
+
+  if (found) {
+    setText(
+      'lookupResult',
+      `ENTREGA Nº ${found.stopNumber} — ${found.packageCount} PACOTE(S) NESTE ENDEREÇO\n${found.address}`
+    );
+  } else {
+    setText(
+      'lookupResult',
+      'Endereço não encontrado na rota salva. Confira o número, bairro e complemento.'
+    );
+  }
+
+  setText(
+    'lookupStatus',
+    'Consulta concluída. A rota não foi alterada.'
+  );
+}
+
+/* CÂMERA E LEITURA DA ETIQUETA */
+
+on('scanBtn', 'click', () => openLabelCamera('create'));
+on('lookupScanBtn', 'click', () => openLabelCamera('lookup'));
+
+function openLabelCamera(mode) {
+  pendingReviewMode = mode;
+  $('ocrFile')?.click();
+}
+
+on('ocrFile', 'change', async e => {
+  const file = e.target.files?.[0];
+
+  if (!file) return;
+
+  await readLabelOCR(file, pendingReviewMode);
+
+  e.target.value = '';
+});
+
+async function readLabelOCR(file, mode) {
+  if (ocrBusy) {
+    alert('Aguarde a leitura atual terminar.');
+    return;
+  }
+
+  if (!window.Tesseract) {
+    alert('Leitor de texto não carregou. Confira a conexão.');
+    return;
+  }
+
+  ocrBusy = true;
+
+  status('Lendo etiqueta...');
+
+  try {
+    const result = await Tesseract.recognize(
+      file,
+      'por+eng',
+      {
+        logger: m => {
+          if (m.status === 'recognizing text') {
+            status(
+              `Lendo etiqueta... ${Math.round((m.progress || 0) * 100)}%`
+            );
+          }
+        }
+      }
+    );
+
+    const raw = (result?.data?.text || '').trim();
+
+    console.log('OCR:', raw);
+
+    const parsed = parseLabelText(raw);
+
+    if (!parsed.address) {
+      status('Não identifiquei um endereço com segurança.');
+
+      alert(
+        'Não consegui separar o endereço da etiqueta. Tente outra foto ou use o microfone/digitação.'
+      );
+
+      return;
+    }
+
+    openReview(parsed.address, mode);
+
+    status('Leitura concluída. Confira o endereço.');
+
+  } catch (err) {
+    console.error(err);
+
+    status('Falha na leitura da etiqueta.');
+
+    alert('Erro ao ler a etiqueta. Tente novamente.');
+
+  } finally {
+    ocrBusy = false;
+  }
+}
+
+function parseLabelText(raw) {
+  const lines = raw
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map(x => x.replace(/\s+/g, ' ').trim())
+    .filter(x => x.length > 2);
+
+  const clean = lines.filter(line =>
+    !/RASTREAMENTO|TRACKING|CODIGO DE BARRAS|PEDIDO|ORDER|SHOPEE|SHEIN|TIKTOK|REMETENTE|CNPJ|CPF|TELEFONE|BARCODE|VOLUME|PESO/i.test(line)
+  );
+
+  const street =
+    /\b(RUA|R\.|AVENIDA|AV\.|TRAVESSA|ESTRADA|RODOVIA|ALAMEDA|PRACA|LARGO|VIELA)\b/i;
+
+  let i = clean.findIndex(x =>
+    /DESTINATARIO|ENTREGA|SHIP TO|RECEIVER|ENDERECO DE ENTREGA/i.test(x)
+  );
+
+  let selected = i >= 0
+    ? clean.slice(i + 1, i + 8)
+    : [];
+
+  if (!selected.some(x => street.test(x))) {
+    i = clean.findIndex(x => street.test(x));
+
+    selected = i >= 0
+      ? clean.slice(i, i + 6)
+      : [];
+  }
+
+  selected = selected.filter(x =>
+    !/^DESTINATARIO|ENTREGA|SHIP TO/i.test(x)
+  );
+
+  return {
+    address: [...new Set(selected)].join(', ')
+  };
+}
+
+/* RECONHECIMENTO DE VOZ */
+
+function startVoice(mode = 'create') {
+  const Speech =
+    window.SpeechRecognition ||
+    window.webkitSpeechRecognition;
+
+  if (!Speech) {
+    alert(
+      'O reconhecimento de voz não está disponível neste navegador. Você pode digitar o endereço ou usar a câmera.'
+    );
+    return;
+  }
+
+  if (recognition) {
+    try {
+      recognition.stop();
+    } catch {}
+  }
+
+  recognition = new Speech();
+
+  recognition.lang = 'pt-BR';
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+
+  status('Pode falar o endereço...');
+
+  recognition.onresult = e => {
+    const spoken =
+      e.results?.[0]?.[0]?.transcript || '';
+
+    status('Voz reconhecida. Confira o endereço.');
+
+    openReview(spoken, mode);
+  };
+
+  recognition.onerror = e => {
+    status('Não foi possível reconhecer a fala.');
+
+    alert(
+      'Não consegui reconhecer o endereço. Tente novamente ou digite.'
+    );
+  };
+
+  recognition.onend = () => {
+    recognition = null;
+  };
+
+  recognition.start();
+}
+
+on('voiceBtn', 'click', () => startVoice('create'));
+on('lookupVoiceBtn', 'click', () => startVoice('lookup'));
+
+/* PONTO DE PARTIDA E GPS */
 
 on('homeBtn', 'click', () => {
   setValue('homeAddress', home?.address || '');
   $('homeDialog')?.showModal();
 });
 
+on('closeHome', 'click', () => {
+  $('homeDialog')?.close();
+});
+
 on('saveHome', 'click', async () => {
-  const address = $('homeAddress')?.value.trim() || '';
+  const address = $('homeAddress')?.value.trim();
 
   if (!address) {
-    alert('Informe o endereço de partida.');
+    alert('Informe o endereço de saída.');
     return;
   }
 
   home = {
     address,
-    lat: home?.lat ?? null,
-    lon: home?.lon ?? null
+    lat: null,
+    lon: null
   };
 
-  localStorage.setItem('flrota.home', JSON.stringify(home));
+  localStorage.setItem(
+    'flrota.home',
+    JSON.stringify(home)
+  );
+
   $('homeDialog')?.close();
 
-  await recalc();
+  await recalcPreview();
 });
 
-on('geoBtn', 'click', () => getCurrentLocation(true));
+on('geoBtn', 'click', async () => {
+  const pos = await getCurrentLocation(true);
 
-/* =========================================================
-   GPS
-========================================================= */
+  if (pos) {
+    home = {
+      address: 'Minha localização atual',
+      lat: pos.lat,
+      lon: pos.lon
+    };
 
-function getCurrentLocation(showAlert = false) {
+    localStorage.setItem(
+      'flrota.home',
+      JSON.stringify(home)
+    );
+
+    $('homeDialog')?.close();
+
+    await recalcPreview();
+  }
+});
+
+function getCurrentLocation() {
   if (!navigator.geolocation) {
-    if (showAlert) alert('Geolocalização não disponível neste aparelho.');
+    alert('GPS não disponível.');
     return Promise.resolve(null);
   }
 
-  setMapStatus('Obtendo localização do motorista...');
+  setText('gpsBadge', 'GPS • LOCALIZANDO');
 
   return new Promise(resolve => {
     navigator.geolocation.getCurrentPosition(
-      position => {
-        const coords = {
-          lat: position.coords.latitude,
-          lon: position.coords.longitude
+      p => {
+        const pos = {
+          lat: p.coords.latitude,
+          lon: p.coords.longitude
         };
 
-        updateDriverPosition(coords.lat, coords.lon);
+        currentPosition = pos;
 
-        if (showAlert) {
-          home = {
-            address: 'Minha localização atual',
-            lat: coords.lat,
-            lon: coords.lon
-          };
+        updateDriverPosition(pos.lat, pos.lon);
 
-          localStorage.setItem('flrota.home', JSON.stringify(home));
+        setText('gpsBadge', 'GPS • ATIVO');
 
-          if ($('homeDialog')?.open) {
-            $('homeDialog').close();
-          }
-
-          recalc();
-        }
-
-        resolve(coords);
+        resolve(pos);
       },
-      error => {
-        console.error('Erro GPS:', error);
-        setMapStatus('Não foi possível obter sua localização.');
 
-        if (showAlert) {
-          alert('Não foi possível obter sua localização. Verifique a permissão de localização do navegador.');
-        }
+      err => {
+        console.warn(err);
+
+        setText('gpsBadge', 'GPS • INDISPONÍVEL');
 
         resolve(null);
       },
+
       {
         enableHighAccuracy: true,
         timeout: 15000,
@@ -305,15 +610,22 @@ function startLocationTracking() {
   }
 
   locationWatchId = navigator.geolocation.watchPosition(
-    position => {
+    p => {
+      currentPosition = {
+        lat: p.coords.latitude,
+        lon: p.coords.longitude
+      };
+
       updateDriverPosition(
-        position.coords.latitude,
-        position.coords.longitude
+        currentPosition.lat,
+        currentPosition.lon
       );
 
-      if (navigationActive) maybeRecalculateNavigation();
+      setText('gpsBadge', 'GPS • ATIVO');
     },
-    error => console.error('GPS tracking:', error),
+
+    e => console.warn('GPS', e),
+
     {
       enableHighAccuracy: true,
       maximumAge: 3000,
@@ -323,9 +635,7 @@ function startLocationTracking() {
 }
 
 function updateDriverPosition(lat, lon) {
-  currentPosition = { lat, lon };
-
-  if (!map || !window.L) return;
+  if (!map) return;
 
   const icon = L.divIcon({
     className: '',
@@ -335,169 +645,135 @@ function updateDriverPosition(lat, lon) {
   });
 
   if (!driverMarker) {
-    driverMarker = L.marker([lat, lon], {
-      icon,
-      zIndexOffset: 1000
-    }).addTo(map).bindPopup('<b>Você está aqui</b>');
+    driverMarker = L.marker(
+      [lat, lon],
+      {
+        icon,
+        zIndexOffset: 1000
+      }
+    )
+      .addTo(map)
+      .bindPopup('Você está aqui');
   } else {
     driverMarker.setLatLng([lat, lon]);
   }
-
-  if (navigationActive) {
-    map.setView([lat, lon], Math.max(map.getZoom(), 15), {
-      animate: true
-    });
-  }
 }
 
-/* =========================================================
-   STATUS DO MAPA
-========================================================= */
-
-function setMapStatus(message) {
-  const element = $('mapStatus');
-  if (element) element.textContent = message;
-}
-
-/* =========================================================
-   MAPA - INICIALIZAÇÃO PROTEGIDA
-========================================================= */
+/* MAPA */
 
 function initMap() {
-  if (map || mapStarting) return;
+  if (map || !window.L || !$('map')) return;
 
-  if (!window.L) {
-    showMapError('Aguardando carregamento do sistema do mapa...');
-    return;
-  }
+  map = L.map('map', {
+    zoomControl: true,
+    attributionControl: true
+  }).setView([-23.5505, -46.6333], 12);
 
-  const mapElement = $('map');
+  L.tileLayer(
+    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }
+  ).addTo(map);
 
-  if (!mapElement) {
-    showMapError('Não encontrei a área do mapa no HTML.');
-    return;
-  }
+  const control = L.control({
+    position: 'topright'
+  });
 
-  mapStarting = true;
-
-  try {
-    map = L.map(mapElement, {
-      zoomControl: true,
-      attributionControl: true
-    }).setView([-23.5505, -46.6333], 12);
-
-    const tileLayer = L.tileLayer(
-      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-      {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap contributors'
-      }
+  control.onAdd = () => {
+    const b = L.DomUtil.create(
+      'button',
+      'map-location-control'
     );
 
-    tileLayer.addTo(map);
+    b.type = 'button';
+    b.textContent = '⌖';
+    b.title = 'Minha localização';
 
-    tileLayer.on('tileerror', () => {
-      setMapStatus('Falha ao carregar imagens do mapa. Verifique a conexão.');
+    L.DomEvent.disableClickPropagation(b);
+
+    L.DomEvent.on(b, 'click', async () => {
+      const p =
+        currentPosition || await getCurrentLocation();
+
+      if (p) map.setView([p.lat, p.lon], 17);
     });
 
-    tileLayer.on('load', () => {
-      if (!parcels.length) {
-        setMapStatus('Mapa carregado • adicione endereços para montar sua rota.');
-      }
-    });
+    return b;
+  };
 
-    const locateButton = L.control({
-      position: 'topright'
-    });
+  control.addTo(map);
 
-    locateButton.onAdd = function() {
-      const button = L.DomUtil.create(
-        'button',
-        'map-location-control'
-      );
-
-      button.type = 'button';
-      button.innerHTML = '⌖';
-      button.title = 'Minha localização';
-
-      L.DomEvent.disableClickPropagation(button);
-
-      L.DomEvent.on(button, 'click', () => {
-        if (currentPosition) {
-          map.setView(
-            [currentPosition.lat, currentPosition.lon],
-            17
-          );
-        } else {
-          getCurrentLocation();
-        }
-      });
-
-      return button;
-    };
-
-    locateButton.addTo(map);
-
-    setMapStatus('Mapa iniciado • aguardando carregamento das imagens.');
-
-    setTimeout(() => {
-      map?.invalidateSize();
-    }, 500);
-
-    console.log('FL ROTA: mapa iniciado com sucesso.');
-
-  } catch (error) {
-    console.error('Erro ao iniciar mapa:', error);
-    map = null;
-    showMapError('Erro ao iniciar o mapa. Confira a conexão e atualize a página.');
-  } finally {
-    mapStarting = false;
-  }
+  setTimeout(() => map.invalidateSize(), 400);
 }
 
-/* =========================================================
-   AGUARDAR LEAFLET
-========================================================= */
+function clearMapLayers() {
+  deliveryMarkers.forEach(m => map?.removeLayer(m));
 
-function waitForLeaflet(attempt = 0) {
-  if (window.L) {
-    initMap();
-    return;
+  deliveryMarkers = [];
+
+  if (routeLayer && map) {
+    map.removeLayer(routeLayer);
   }
 
-  if (attempt >= 20) {
-    showMapError('O sistema do mapa não carregou. Verifique a conexão.');
-    console.error('Leaflet não foi carregado após várias tentativas.');
-    return;
-  }
-
-  setTimeout(() => waitForLeaflet(attempt + 1), 500);
+  routeLayer = null;
 }
 
-/* =========================================================
-   GEOCODIFICAÇÃO
-========================================================= */
+function drawStops(stops) {
+  clearMapLayers();
+
+  if (!map) return;
+
+  stops.forEach(s => {
+    if (
+      !Number.isFinite(Number(s.lat)) ||
+      !Number.isFinite(Number(s.lon))
+    ) return;
+
+    const icon = L.divIcon({
+      className: '',
+      html: `
+        <div class="delivery-marker">
+          <span>${s.stopNumber}</span>
+        </div>
+      `,
+      iconSize: [34, 34],
+      iconAnchor: [17, 34]
+    });
+
+    const marker = L.marker(
+      [s.lat, s.lon],
+      { icon }
+    ).addTo(map);
+
+    marker.bindPopup(
+      `<b>Entrega ${s.stopNumber}</b><br>${escapeHtml(s.address)}<br>${s.packageCount} pacote(s)`
+    );
+
+    deliveryMarkers.push(marker);
+  });
+}
+
+/* GEOCODIFICAÇÃO */
 
 async function geocode(address) {
   try {
-    const query = address.includes('Brasil')
-      ? address
-      : address + ', Brasil';
-
     const url =
-      'https://nominatim.openstreetmap.org/search' +
-      '?format=jsonv2&limit=1&countrycodes=br&q=' +
-      encodeURIComponent(query);
+      'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=br&q=' +
+      encodeURIComponent(address + ', Brasil');
 
-    const response = await fetch(url, {
-      headers: { Accept: 'application/json' }
+    const r = await fetch(url, {
+      headers: {
+        Accept: 'application/json'
+      }
     });
 
-    if (!response.ok) {
-      throw new Error('Erro HTTP ' + response.status);
+    if (!r.ok) {
+      throw Error('Geocodificação HTTP ' + r.status);
     }
 
-    const data = await response.json();
+    const data = await r.json();
 
     if (!data.length) return null;
 
@@ -506,686 +782,453 @@ async function geocode(address) {
       lon: Number(data[0].lon)
     };
 
-  } catch (error) {
-    console.error('Erro ao localizar endereço:', error);
+  } catch (e) {
+    console.warn('Geocode', e);
     return null;
   }
 }
 
-/* =========================================================
-   ROTA PELAS RUAS - OSRM
-========================================================= */
+function haversine(a, b) {
+  const rad = x => x * Math.PI / 180;
 
-async function requestRoute(start, destinations) {
-  if (!start || !destinations.length) return null;
+  const dLat = rad(b.lat - a.lat);
+  const dLon = rad(b.lon - a.lon);
 
-  const coordinates = [
-    `${start.lon},${start.lat}`,
-    ...destinations.map(point => `${point.lon},${point.lat}`)
-  ].join(';');
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(a.lat)) *
+    Math.cos(rad(b.lat)) *
+    Math.sin(dLon / 2) ** 2;
 
-  const url =
-    'https://router.project-osrm.org/route/v1/driving/' +
-    coordinates +
-    '?overview=full&geometries=geojson&steps=true';
+  return 6371 * 2 *
+    Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
+/* ORDENAÇÃO APROXIMADA DOS DESTINOS */
+
+async function optimizeStops(start, stops) {
+  if (stops.length < 2) return stops;
+
+  const remaining = [...stops];
+  const ordered = [];
+  let current = start;
+
+  while (remaining.length) {
+    remaining.sort(
+      (a, b) => haversine(current, a) - haversine(current, b)
+    );
+
+    const next = remaining.shift();
+
+    ordered.push(next);
+
+    current = next;
+  }
+
+  return ordered;
+}
+
+/* TRAJETO PELAS RUAS */
+
+async function getRoadRoute(start, stops) {
+  if (!stops.length) return null;
+
+  const coords = [
+    start,
+    ...stops
+  ]
+    .map(p => `${p.lon},${p.lat}`)
+    .join(';');
 
   try {
-    const response = await fetch(url);
+    const r = await fetch(
+      `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=true`
+    );
 
-    if (!response.ok) {
-      throw new Error('OSRM HTTP ' + response.status);
+    if (!r.ok) {
+      throw Error('OSRM route HTTP ' + r.status);
     }
 
-    const data = await response.json();
+    const d = await r.json();
 
-    if (data.code !== 'Ok' || !data.routes?.length) {
-      return null;
-    }
+    return d.code === 'Ok'
+      ? d.routes?.[0] || null
+      : null;
 
-    return data.routes[0];
-
-  } catch (error) {
-    console.error('Erro ao calcular rota:', error);
+  } catch (e) {
+    console.warn(e);
     return null;
   }
 }
 
-/* =========================================================
-   LIMPAR MARCADORES E ROTA
-========================================================= */
-
-function clearDeliveryMarkers() {
-  deliveryMarkers.forEach(marker => {
-    if (map) map.removeLayer(marker);
-  });
-
-  deliveryMarkers = [];
-}
-
-function clearRoute() {
+function drawRoute(route) {
   if (routeLayer && map) {
     map.removeLayer(routeLayer);
   }
 
   routeLayer = null;
-}
-
-/* =========================================================
-   MARCADORES DE ENTREGA
-========================================================= */
-
-function drawDeliveryMarkers(order) {
-  clearDeliveryMarkers();
-
-  if (!map) return;
-
-  order.forEach((parcel, index) => {
-    const icon = L.divIcon({
-      className: '',
-      html: `<div class="delivery-marker"><span>${index + 1}</span></div>`,
-      iconSize: [34, 34],
-      iconAnchor: [17, 34],
-      popupAnchor: [0, -34]
-    });
-
-    const marker = L.marker(
-      [Number(parcel.lat), Number(parcel.lon)],
-      { icon }
-    ).addTo(map);
-
-    marker.bindPopup(`
-      <div style="min-width:190px">
-        <b>Entrega ${index + 1}</b><br><br>
-        ${escapeHtml(parcel.address)}<br><br>
-        <span style="color:#666">
-          ${escapeHtml(parcel.code || 'Sem código')}
-        </span>
-      </div>
-    `);
-
-    deliveryMarkers.push(marker);
-  });
-}
-
-/* =========================================================
-   DESENHAR ROTA
-========================================================= */
-
-function drawRoute(route) {
-  clearRoute();
 
   if (!map || !route?.geometry) return;
 
-  routeLayer = L.geoJSON(route.geometry, {
-    style: {
-      color: '#FF3038',
-      weight: 6,
-      opacity: 0.9,
-      lineCap: 'round',
-      lineJoin: 'round'
+  routeLayer = L.geoJSON(
+    route.geometry,
+    {
+      style: {
+        color: '#ff3038',
+        weight: 6,
+        opacity: .95,
+        lineCap: 'round',
+        lineJoin: 'round'
+      }
     }
-  }).addTo(map);
+  ).addTo(map);
 
   const bounds = routeLayer.getBounds();
 
   if (bounds.isValid()) {
-    map.fitBounds(bounds, {
-      padding: [30, 30]
-    });
+    map.fitBounds(
+      bounds,
+      { padding: [35, 35] }
+    );
   }
 }
 
-/* =========================================================
-   INFORMAÇÕES DA ROTA
-========================================================= */
+function updateRouteInfo(route, count) {
+  setText('routeStops', count || 0);
 
-function updateRouteInfo(route, stops) {
   if (!route) {
     setText('routeDistance', '--');
     setText('routeTime', '--');
-    setText('routeStops', stops || 0);
     return;
   }
-
-  const distanceKm = route.distance / 1000;
-  const minutes = Math.round(route.duration / 60);
 
   setText(
     'routeDistance',
-    distanceKm < 10
-      ? distanceKm.toFixed(1) + ' km'
-      : Math.round(distanceKm) + ' km'
+    (route.distance / 1000).toFixed(1) + ' km'
   );
 
-  if (minutes < 60) {
-    setText('routeTime', minutes + ' min');
-  } else {
-    const hours = Math.floor(minutes / 60);
-    const remaining = minutes % 60;
+  const m = Math.round(route.duration / 60);
 
-    setText(
-      'routeTime',
-      hours + 'h ' + remaining + 'min'
-    );
+  setText(
+    'routeTime',
+    m < 60
+      ? `${m} min`
+      : `${Math.floor(m / 60)}h ${m % 60}min`
+  );
+}
+
+/* PREPARAÇÃO DOS DESTINOS */
+
+async function getStartPoint() {
+  if (home?.lat != null && home?.lon != null) {
+    return {
+      lat: Number(home.lat),
+      lon: Number(home.lon)
+    };
   }
 
-  setText('routeStops', stops || 0);
+  if (
+    home?.address &&
+    home.address !== 'Minha localização atual'
+  ) {
+    const p = await geocode(home.address);
+
+    if (p) return p;
+  }
+
+  if (currentPosition) return currentPosition;
+
+  return await getCurrentLocation();
 }
 
-/* =========================================================
-   DISTÂNCIA APROXIMADA
-========================================================= */
+async function prepareStops() {
+  const groups = buildStops();
 
-function distance(a, b) {
-  const lat =
-    ((Number(a.lat) + Number(b.lat)) / 2) *
-    Math.PI / 180;
+  for (const g of groups) {
+    if (
+      !Number.isFinite(Number(g.lat)) ||
+      !Number.isFinite(Number(g.lon))
+    ) {
+      const p = await geocode(g.address);
 
-  const x = (Number(a.lat) - Number(b.lat)) * 111.32;
+      if (p) {
+        g.lat = p.lat;
+        g.lon = p.lon;
 
-  const y =
-    (Number(a.lon) - Number(b.lon)) *
-    111.32 *
-    Math.cos(lat);
+        g.packages.forEach(pkg => {
+          pkg.lat = p.lat;
+          pkg.lon = p.lon;
+        });
+      }
+    }
+  }
 
-  return Math.sqrt(x * x + y * y);
+  return groups.filter(g =>
+    Number.isFinite(Number(g.lat)) &&
+    Number.isFinite(Number(g.lon))
+  );
 }
 
-/* =========================================================
-   RECALCULAR ROTA
-========================================================= */
-
-async function recalc() {
+async function recalcPreview() {
   if (routingBusy) return;
-
-  const pending = parcels.filter(p => !p.done);
-
-  if (!pending.length) {
-    window.flrotaOrder = [];
-    clearDeliveryMarkers();
-    clearRoute();
-    updateRouteInfo(null, 0);
-    setMapStatus('Adicione endereços para montar sua rota.');
-    return;
-  }
 
   routingBusy = true;
 
   try {
-    setMapStatus('Localizando endereços...');
-
-    for (const parcel of pending) {
-      const hasCoordinates =
-        parcel.lat !== null &&
-        parcel.lat !== undefined &&
-        parcel.lon !== null &&
-        parcel.lon !== undefined &&
-        Number.isFinite(Number(parcel.lat)) &&
-        Number.isFinite(Number(parcel.lon));
-
-      if (!hasCoordinates) {
-        const location = await geocode(parcel.address);
-
-        if (location) {
-          parcel.lat = location.lat;
-          parcel.lon = location.lon;
-        }
-      }
-    }
-
-    localStorage.setItem(
-      'flrota.parcels',
-      JSON.stringify(parcels)
-    );
-
-    const located = pending.filter(p =>
-      p.lat !== null &&
-      p.lat !== undefined &&
-      p.lon !== null &&
-      p.lon !== undefined &&
-      Number.isFinite(Number(p.lat)) &&
-      Number.isFinite(Number(p.lon))
-    );
-
-    if (!located.length) {
-      setMapStatus('Nenhum endereço foi localizado. Confira rua, número, cidade e CEP.');
-      render();
+    if (!parcels.length) {
+      updateRouteInfo(null, 0);
       return;
     }
 
-    let start = null;
+    status('Localizando endereços e organizando destinos...');
 
-    if (navigationActive && currentPosition) {
-      start = { ...currentPosition };
+    const stops = await prepareStops();
 
-    } else if (
-      home?.lat !== null &&
-      home?.lat !== undefined &&
-      home?.lon !== null &&
-      home?.lon !== undefined
-    ) {
-      start = {
-        lat: Number(home.lat),
-        lon: Number(home.lon)
-      };
-
-    } else if (
-      home?.address &&
-      home.address !== 'Minha localização atual'
-    ) {
-      start = await geocode(home.address);
+    if (!stops.length) {
+      status(
+        'Não foi possível localizar os endereços. Confira cidade, bairro e CEP.'
+      );
+      return;
     }
 
-    if (!start && currentPosition) {
-      start = { ...currentPosition };
-    }
+    const start = await getStartPoint();
 
     if (!start) {
-      start = await getCurrentLocation();
-    }
-
-    if (!start) {
-      setMapStatus('Defina o ponto de partida ou permita o GPS.');
+      status('Defina o ponto de partida ou permita o GPS.');
       return;
     }
 
-    const remaining = [...located];
-    const ordered = [];
-    let current = { ...start };
+    const ordered = await optimizeStops(start, stops);
 
-    while (remaining.length) {
-      remaining.sort(
-        (a, b) => distance(current, a) - distance(current, b)
-      );
+    ordered.forEach((s, i) => {
+      s.stopNumber = i + 1;
+    });
 
-      const next = remaining.shift();
+    const route = await getRoadRoute(start, ordered);
 
-      ordered.push(next);
+    drawStops(ordered);
 
-      current = {
-        lat: Number(next.lat),
-        lon: Number(next.lon)
-      };
-    }
+    if (route) drawRoute(route);
 
-    window.flrotaOrder = ordered;
-
-    drawDeliveryMarkers(ordered);
-
-    setMapStatus('Calculando rota pelas ruas...');
-
-    const route = await requestRoute(start, ordered);
-
-    if (!route) {
-      updateRouteInfo(null, ordered.length);
-
-      setMapStatus(
-        'Não foi possível calcular a rota. Confira os endereços e tente novamente.'
-      );
-
-      return;
-    }
-
-    drawRoute(route);
     updateRouteInfo(route, ordered.length);
 
-    setMapStatus(
-      navigationActive
-        ? 'Navegação ativa • acompanhando sua posição'
-        : 'Rota pronta • pressione INICIAR ROTA'
+    status(
+      'Prévia da rota atualizada. Confira os endereços antes de salvar.'
     );
 
-    render();
-
-  } catch (error) {
-    console.error('Erro ao recalcular rota:', error);
-    setMapStatus('Erro ao montar a rota. Tente novamente.');
+    saveData();
 
   } finally {
     routingBusy = false;
   }
 }
 
-/* =========================================================
-   NAVEGAÇÃO
-========================================================= */
+/* SALVAR A ROTA */
+
+async function saveRoute() {
+  if (!parcels.length) {
+    alert('Cadastre pelo menos um endereço antes de salvar a rota.');
+    return;
+  }
+
+  if (routingBusy) return;
+
+  routingBusy = true;
+
+  status('Preparando e organizando sua rota...');
+
+  try {
+    const stops = await prepareStops();
+
+    if (!stops.length) {
+      alert(
+        'Não consegui localizar os endereços. Confira os dados e tente novamente.'
+      );
+      return;
+    }
+
+    const start = await getStartPoint();
+
+    if (!start) {
+      alert(
+        'Defina o ponto de partida ou permita o GPS.'
+      );
+      return;
+    }
+
+    const ordered = await optimizeStops(start, stops);
+
+    ordered.forEach((s, i) => {
+      s.stopNumber = i + 1;
+      s.packageCount = s.packages.length;
+    });
+
+    const route = await getRoadRoute(start, ordered);
+
+    savedRoute = {
+      savedAt: Date.now(),
+
+      stops: ordered.map(s => ({
+        key: s.key,
+        address: s.address,
+        lat: s.lat,
+        lon: s.lon,
+        stopNumber: s.stopNumber,
+        packageCount: s.packageCount
+      })),
+
+      distance: route?.distance || null,
+      duration: route?.duration || null
+    };
+
+    drawStops(ordered);
+
+    if (route) drawRoute(route);
+
+    updateRouteInfo(route, ordered.length);
+
+    saveData();
+
+    setMode('lookup');
+
+    status(
+      'Rota salva! Agora você pode consultar a numeração dos pacotes.'
+    );
+
+    alert(
+      'Rota salva com sucesso! Agora use CONSULTAR PACOTE para identificar o número de cada parada.'
+    );
+
+  } catch (e) {
+    console.error(e);
+
+    alert(
+      'Não foi possível salvar a rota. Tente novamente.'
+    );
+
+  } finally {
+    routingBusy = false;
+  }
+}
+
+/* NAVEGAÇÃO */
 
 on('navBtn', 'click', async () => {
-  if (!navigationActive) {
-    const next = window.flrotaOrder?.find(p => !p.done);
+  if (!savedRoute?.stops?.length) {
+    alert('Primeiro crie e salve sua rota.');
+    return;
+  }
 
-    if (!next) {
-      alert('Nenhum destino localizado pendente. Primeiro cadastre os pacotes e monte a rota.');
+  if (!navigationActive) {
+    const p = await getCurrentLocation();
+
+    if (!p) {
+      alert(
+        'Ative a localização do aparelho para iniciar.'
+      );
       return;
     }
 
     navigationActive = true;
-    setText('navBtn', '⏹ ENCERRAR NAVEGAÇÃO');
 
-    setMapStatus('Obtendo sua localização...');
-
-    const position = await getCurrentLocation();
-
-    if (!position) {
-      navigationActive = false;
-      setText('navBtn', 'INICIAR ROTA →');
-      return;
-    }
-
-    lastRoutePosition = { ...position };
+    setText('navBtn', 'ENCERRAR NAVEGAÇÃO');
 
     startLocationTracking();
 
-    if (map) {
-      map.setView([position.lat, position.lon], 16);
-    }
+    map?.setView([p.lat, p.lon], 16);
 
-    await recalc();
-
-    setMapStatus('Navegação ativa • siga a rota vermelha');
+    status(
+      'Navegação iniciada. Siga a rota vermelha no mapa.'
+    );
 
   } else {
-    stopNavigation();
+    navigationActive = false;
+
+    if (locationWatchId !== null) {
+      navigator.geolocation.clearWatch(locationWatchId);
+      locationWatchId = null;
+    }
+
+    setText('navBtn', 'INICIAR ROTA →');
+
+    status('Navegação encerrada.');
   }
 });
 
-function stopNavigation() {
-  navigationActive = false;
-  lastRoutePosition = null;
+/* MENU INFERIOR */
 
-  setText('navBtn', 'INICIAR ROTA →');
+on('tabHome', 'click', () => {
+  setMode('create');
 
-  setMapStatus('Navegação encerrada.');
-}
-
-/* =========================================================
-   RECÁLCULO DURANTE NAVEGAÇÃO
-========================================================= */
-
-async function maybeRecalculateNavigation() {
-  if (!navigationActive || routingBusy || !currentPosition) {
-    return;
-  }
-
-  if (!lastRoutePosition) {
-    lastRoutePosition = { ...currentPosition };
-    return;
-  }
-
-  const moved = distance(
-    currentPosition,
-    lastRoutePosition
-  );
-
-  if (moved >= 0.3) {
-    lastRoutePosition = { ...currentPosition };
-    await recalc();
-  }
-}
-
-/* =========================================================
-   OCR / CÂMERA
-========================================================= */
-
-function openLabelCamera() {
-  $('ocrFile')?.click();
-}
-
-on('ocrBtn', 'click', openLabelCamera);
-on('scanBtn', 'click', openLabelCamera);
-on('stopBtn', 'click', stopCamera);
-
-function stopCamera() {
-  if (stream) {
-    stream.getTracks().forEach(track => track.stop());
-    stream = null;
-  }
-
-  const cameraWrap = $('cameraWrap');
-
-  if (cameraWrap) {
-    cameraWrap.style.display = 'none';
-  }
-}
-
-on('ocrFile', 'change', async event => {
-  const file = event.target.files?.[0];
-
-  if (!file) return;
-
-  setText('ocrStatus', 'Fotografia recebida. Iniciando leitura...');
-
-  try {
-    await readLabelOCR(file);
-
-  } catch (error) {
-    console.error('Erro no processamento da foto:', error);
-
-    alert(
-      'Erro ao processar a fotografia: ' +
-      error.message
-    );
-
-  } finally {
-    event.target.value = '';
-  }
-});
-
-async function readLabelOCR(file) {
-  const status = $('ocrStatus');
-
-  if (ocrBusy) {
-    alert('Já existe uma leitura em andamento.');
-    return;
-  }
-
-  if (!window.Tesseract) {
-    setText('ocrStatus', 'Motor OCR não carregado.');
-
-    alert(
-      'O leitor de texto não carregou. Verifique sua conexão com a internet.'
-    );
-
-    return;
-  }
-
-  ocrBusy = true;
-
-  setText('ocrStatus', 'Preparando leitura da etiqueta...');
-
-  try {
-    const result = await window.Tesseract.recognize(
-      file,
-      'por+eng',
-      {
-        logger: message => {
-          if (message.status === 'recognizing text') {
-            setText(
-              'ocrStatus',
-              'Lendo etiqueta... ' +
-              Math.round((message.progress || 0) * 100) +
-              '%'
-            );
-
-          } else if (message.status) {
-            setText(
-              'ocrStatus',
-              'Processando: ' + message.status
-            );
-          }
-        }
-      }
-    );
-
-    const rawText = result?.data?.text || '';
-    const recognizedText = rawText.trim();
-
-    console.log(
-      'TEXTO RECONHECIDO PELO OCR:',
-      recognizedText
-    );
-
-    if (!recognizedText) {
-      setText('ocrStatus', 'Nenhum texto encontrado.');
-
-      alert(
-        'Não foi possível reconhecer texto nessa fotografia. Tente outra foto.'
-      );
-
-      return;
-    }
-
-    const parsed = parseLabelText(recognizedText);
-
-    setText(
-      'ocrStatus',
-      'Leitura concluída. Confira o texto reconhecido.'
-    );
-
-    review('', parsed.address || recognizedText);
-
-  } catch (error) {
-    console.error('Falha no OCR:', error);
-
-    setText('ocrStatus', 'Falha na leitura da etiqueta.');
-
-    alert(
-      'Erro no reconhecimento: ' +
-      (error.message || error)
-    );
-
-  } finally {
-    ocrBusy = false;
-  }
-}
-
-/* =========================================================
-   IDENTIFICAÇÃO DO ENDEREÇO NA ETIQUETA
-========================================================= */
-
-function parseLabelText(raw) {
-  const lines = raw
-    .replace(/\r/g, '\n')
-    .split('\n')
-    .map(line => line.replace(/\s+/g, ' ').trim())
-    .filter(line => line.length > 2);
-
-  const normalize = line => line
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toUpperCase();
-
-  const isNoise = line =>
-    /RASTREAMENTO|TRACKING|CODIGO DE BARRAS|PEDIDO|ORDER|SHOPEE|SHEIN|TIKTOK|REMETENTE|CNPJ|CPF|TELEFONE|BARCODE|VOLUME|PESO/
-      .test(normalize(line));
-
-  const isStreet = line =>
-    /\b(RUA|R\.|AVENIDA|AV\.|TRAVESSA|ESTRADA|RODOVIA|ALAMEDA|PRACA|LARGO|VIELA|ROD\.)\b/i
-      .test(line);
-
-  const hasCep = line =>
-    /\b\d{5}[- ]?\d{3}\b/.test(line);
-
-  const cleanLines = lines.filter(line =>
-    !isNoise(line) || isStreet(line) || hasCep(line)
-  );
-
-  let selected = [];
-
-  const recipientIndex = cleanLines.findIndex(line =>
-    /DESTINATARIO|ENTREGA|SHIP TO|RECEIVER|ENDERECO DE ENTREGA/
-      .test(normalize(line))
-  );
-
-  if (recipientIndex >= 0) {
-    selected = cleanLines.slice(
-      recipientIndex + 1,
-      recipientIndex + 8
-    );
-  }
-
-  if (!selected.some(isStreet)) {
-    const streetIndex = cleanLines.findIndex(isStreet);
-
-    if (streetIndex >= 0) {
-      selected = cleanLines.slice(
-        streetIndex,
-        streetIndex + 6
-      );
-    }
-  }
-
-  if (!selected.length) {
-    const cepIndex = cleanLines.findIndex(hasCep);
-
-    if (cepIndex >= 0) {
-      selected = cleanLines.slice(
-        Math.max(0, cepIndex - 3),
-        Math.min(cleanLines.length, cepIndex + 2)
-      );
-    }
-  }
-
-  selected = selected
-    .filter(line => !isNoise(line) || isStreet(line) || hasCep(line))
-    .filter(line => line.length > 2);
-
-  selected = [...new Set(selected)];
-
-  return {
-    address: selected.length
-      ? selected.join(', ')
-      : ''
-  };
-}
-
-/* =========================================================
-   PESQUISA MANUAL
-========================================================= */
-
-const addressSearch = $('addressSearch');
-
-if (addressSearch) {
-  addressSearch.addEventListener('keydown', event => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-
-      const address = addressSearch.value.trim();
-
-      if (!address) return;
-
-      review('', address);
-      addressSearch.value = '';
-    }
+  window.scrollTo({
+    top: 0,
+    behavior: 'smooth'
   });
-}
-
-/* =========================================================
-   ATUALIZAR ROTA
-========================================================= */
-
-on('routeBtn', 'click', async () => {
-  await recalc();
 });
 
-/* =========================================================
-   INICIALIZAÇÃO DO APLICATIVO
-========================================================= */
+on('tabStops', 'click', () => {
+  setMode('lookup');
+
+  window.scrollTo({
+    top: 0,
+    behavior: 'smooth'
+  });
+});
+
+on('tabMap', 'click', () => {
+  $('map')?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'center'
+  });
+
+  setTimeout(() => map?.invalidateSize(), 350);
+});
+
+on('tabSettings', 'click', () => {
+  $('homeDialog')?.showModal();
+});
+
+/* INICIALIZAÇÃO */
 
 function initializeApp() {
-  console.log('FL ROTA: iniciando aplicativo...');
-
   render();
 
-  waitForLeaflet();
+  initMap();
 
   startLocationTracking();
 
-  if (parcels.length) {
-    setTimeout(() => recalc(), 1000);
-  } else {
-    setMapStatus('Adicione endereços para montar sua rota.');
+  if (savedRoute?.stops?.length) {
+    const stops = savedRoute.stops;
+
+    drawStops(stops);
+
+    setText('routeStops', stops.length);
+
+    if (savedRoute.distance) {
+      setText(
+        'routeDistance',
+        (savedRoute.distance / 1000).toFixed(1) + ' km'
+      );
+    }
+
+    if (savedRoute.duration) {
+      const m = Math.round(savedRoute.duration / 60);
+
+      setText(
+        'routeTime',
+        m < 60
+          ? `${m} min`
+          : `${Math.floor(m / 60)}h ${m % 60}min`
+      );
+    }
+
+    setMode('lookup');
+
+  } else if (parcels.length) {
+    setTimeout(() => recalcPreview(), 900);
   }
+
+  setTimeout(() => map?.invalidateSize(), 700);
 }
 
 if (document.readyState === 'loading') {
@@ -1198,34 +1241,21 @@ if (document.readyState === 'loading') {
   initializeApp();
 }
 
-/* =========================================================
-   SERVICE WORKER
-========================================================= */
-
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('./sw.js')
-      .catch(error => {
-        console.error(
-          'Erro no Service Worker:',
-          error
-        );
-      });
+      .catch(e => console.warn('SW', e));
   });
 }
 
-/* =========================================================
-   ERROS GERAIS
-========================================================= */
-
-window.addEventListener('error', event => {
+window.addEventListener('error', e => {
   console.error(
-    'Erro JavaScript no FL ROTA:',
-    event.message,
-    event.filename,
-    event.lineno
+    'FL ROTA erro:',
+    e.message,
+    e.filename,
+    e.lineno
   );
 });
 
-console.log('FL ROTA: arquivo app.js carregado.');
+console.log('FL ROTA: app.js carregado.');
