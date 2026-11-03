@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="pt-BR">
 <head>
@@ -5,754 +6,196 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#090B0F">
   <meta name="description" content="FL ROTA - Entregas inteligentes">
-
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-
-  <!-- Leaflet - sistema de mapas -->
-  <link
-    rel="stylesheet"
-    href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
-    crossorigin=""
-  >
-
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <title>FL ROTA</title>
-
   <style>
-    :root {
-      --bg:#090B0F;
-      --panel:#15191F;
-      --panel2:#20252D;
-      --red:#FF3038;
-      --white:#FFFFFF;
-      --muted:#9299A4;
-      --line:#292F38;
-    }
-
-    * {
-      box-sizing:border-box;
-    }
-
-    body {
-      margin:0;
-      background:var(--bg);
-      color:var(--white);
-      font-family:Arial,sans-serif;
-      padding-bottom:90px;
-    }
-
-    header {
-      padding:22px 18px 16px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-    }
-
-    .brand {
-      font-size:29px;
-      font-weight:900;
-      letter-spacing:2px;
-    }
-
-    .brand span {
-      color:var(--red);
-    }
-
-    .subtitle {
-      font-size:9px;
-      color:#AAB0BA;
-      letter-spacing:2px;
-    }
-
-    .online {
-      border:1px solid #59616B;
-      color:white;
-      border-radius:30px;
-      padding:7px 12px;
-      font-size:10px;
-      letter-spacing:1px;
-    }
-
-    .online i {
-      display:inline-block;
-      width:7px;
-      height:7px;
-      background:#35D07F;
-      border-radius:50%;
-      margin-right:5px;
-    }
-
-    main {
-      padding:0 15px;
-      max-width:720px;
-      margin:auto;
-    }
-
-    .search {
-      display:flex;
-      align-items:center;
-      background:var(--panel);
-      border:1px solid var(--line);
-      border-radius:15px;
-      padding:5px 10px;
-      margin-bottom:13px;
-    }
-
-    .search input {
-      flex:1;
-      min-width:0;
-      background:transparent;
-      border:0;
-      outline:none;
-      color:white;
-      padding:13px 5px;
-      font-size:14px;
-      margin:0;
-    }
-
-    .search button {
-      background:transparent;
-      color:white;
-      font-size:25px;
-      padding:8px;
-      border:0;
-    }
-
-    button {
-      border:0;
-      border-radius:12px;
-      padding:13px;
-      font-weight:bold;
-      cursor:pointer;
-    }
-
-    button:active {
-      opacity:.75;
-    }
-
-    .primary {
-      background:var(--red);
-      color:white;
-    }
-
-    .secondary {
-      background:var(--panel2);
-      color:white;
-      border:1px solid var(--line);
-    }
-
-    .actions {
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:9px;
-      margin-bottom:15px;
-    }
-
-    .actions button:first-child {
-      grid-column:1/-1;
-    }
-
-    #cameraWrap {
-      display:none;
-      background:#000;
-      border-radius:15px;
-      overflow:hidden;
-      margin:12px 0;
-    }
-
-    video {
-      width:100%;
-      max-height:300px;
-      object-fit:cover;
-    }
-
-    .section-title {
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      margin:22px 2px 11px;
-      font-size:15px;
-      font-weight:bold;
-    }
-
-    /* MAPA FL ROTA */
-
-    #map {
-      width:100%;
-      height:390px;
-      min-height:390px;
-      background:#101318;
-      border:1px solid #252B33;
-      border-radius:17px;
-      overflow:hidden;
-      position:relative;
-      z-index:1;
-    }
-
-    .leaflet-control-zoom {
-      border:1px solid #343A44 !important;
-    }
-
-    .leaflet-control-zoom a {
-      background:#15191F !important;
-      color:white !important;
-      border-color:#343A44 !important;
-    }
-
-    .leaflet-control-attribution {
-      background:rgba(9,11,15,.75) !important;
-      color:#9299A4 !important;
-      font-size:8px !important;
-    }
-
-    .leaflet-control-attribution a {
-      color:#AAB0BA !important;
-    }
-
-    .map-location-control {
-      width:42px;
-      height:42px;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      background:#15191F;
-      border:1px solid #343A44;
-      border-radius:10px;
-      color:white;
-      font-size:20px;
-      box-shadow:0 2px 8px #0008;
-    }
-
-    .map-location-control:active {
-      opacity:.7;
-    }
-
-    .driver-marker {
-      width:22px;
-      height:22px;
-      background:#2F80FF;
-      border:4px solid white;
-      border-radius:50%;
-      box-shadow:0 0 0 7px #2F80FF33, 0 2px 8px #0009;
-    }
-
-    .delivery-marker {
-      width:34px;
-      height:34px;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      background:var(--red);
-      color:white;
-      border:3px solid white;
-      border-radius:50% 50% 50% 0;
-      transform:rotate(-45deg);
-      box-shadow:0 3px 8px #0009;
-      font-weight:900;
-    }
-
-    .delivery-marker span {
-      transform:rotate(45deg);
-      font-size:13px;
-    }
-
-    .route-info {
-      margin-top:9px;
-      display:grid;
-      grid-template-columns:1fr 1fr 1fr;
-      gap:7px;
-    }
-
-    .route-info-box {
-      background:var(--panel);
-      border:1px solid var(--line);
-      border-radius:11px;
-      padding:9px 7px;
-      text-align:center;
-    }
-
-    .route-info-box strong {
-      display:block;
-      font-size:14px;
-    }
-
-    .route-info-box span {
-      color:var(--muted);
-      font-size:9px;
-    }
-
-    #mapStatus {
-      margin-top:8px;
-      color:var(--muted);
-      font-size:11px;
-      text-align:center;
-      min-height:16px;
-    }
-
-    .stats {
-      display:grid;
-      grid-template-columns:repeat(3,1fr);
-      gap:9px;
-      margin:15px 0;
-    }
-
-    .stat {
-      background:var(--panel);
-      border:1px solid var(--line);
-      border-radius:14px;
-      padding:13px 9px;
-    }
-
-    .stat b {
-      display:block;
-      font-size:24px;
-    }
-
-    .stat span {
-      color:var(--muted);
-      font-size:10px;
-    }
-
-    .card {
-      background:var(--panel);
-      border:1px solid var(--line);
-      border-radius:15px;
-      padding:13px;
-    }
-
-    input,textarea {
-      width:100%;
-      background:#0D1117;
-      border:1px solid var(--line);
-      border-radius:10px;
-      padding:12px;
-      color:white;
-      margin:5px 0 12px;
-      font:inherit;
-    }
-
-    label {
-      font-size:12px;
-      color:var(--muted);
-    }
-
-    .parcel {
-      padding:13px;
-      border-bottom:1px solid var(--line);
-    }
-
-    .parcel strong {
-      display:block;
-    }
-
-    .parcel small,.muted {
-      color:var(--muted);
-      font-size:12px;
-    }
-
-    .pill {
-      float:right;
-      color:white;
-      border:1px solid #626B77;
-      border-radius:20px;
-      padding:3px 8px;
-      font-size:10px;
-    }
-
-    .notice {
-      color:var(--muted);
-      font-size:11px;
-      line-height:1.5;
-      margin:12px 2px;
-    }
-
-    footer {
-      text-align:center;
-      padding:20px;
-      color:var(--muted);
-      font-size:10px;
-    }
-
-    .bottom {
-      position:fixed;
-      bottom:0;
-      left:0;
-      right:0;
-      display:grid;
-      grid-template-columns:repeat(4,1fr);
-      background:#11151B;
-      border-top:1px solid var(--line);
-      padding:12px 5px calc(12px + env(safe-area-inset-bottom));
-      z-index:10;
-    }
-
-    .bottom a {
-      color:#AAB0BA;
-      text-align:center;
-      text-decoration:none;
-      font-size:10px;
-    }
-
-    .bottom a:first-child {
-      color:white;
-    }
-
-    dialog {
-      background:var(--panel);
-      color:white;
-      border:1px solid var(--line);
-      border-radius:17px;
-      width:calc(100% - 28px);
-      max-width:520px;
-    }
-
-    dialog::backdrop {
-      background:#000B;
-    }
-
-    .dialog-actions {
-      display:flex;
-      gap:8px;
-    }
-
-    .dialog-actions button {
-      flex:1;
-    }
+    :root{--bg:#090b0f;--panel:#15191f;--panel2:#20252d;--red:#ff3038;--white:#fff;--muted:#9299a4;--line:#292f38;--green:#35d07f}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--white);font-family:Arial,sans-serif;padding-bottom:90px}
+    button,input,textarea{font:inherit}
+    button{border:0;border-radius:13px;padding:13px;font-weight:800;cursor:pointer;color:white}
+    button:active{opacity:.78}
+    button:disabled{opacity:.45;cursor:not-allowed}
+    .primary{background:var(--red);color:#fff}
+    .secondary{background:var(--panel2);border:1px solid var(--line);color:#fff}
+    header{padding:18px 18px 14px;display:flex;align-items:center;justify-content:space-between;max-width:760px;margin:auto}
+    .brand{font-size:28px;font-weight:900;letter-spacing:2px}.brand span{color:var(--red)}
+    .subtitle{font-size:9px;color:#aab0ba;letter-spacing:2px;margin-top:2px}
+    .online{border:1px solid #59616b;border-radius:30px;padding:7px 11px;font-size:10px;letter-spacing:1px}
+    .online i{display:inline-block;width:7px;height:7px;background:var(--green);border-radius:50%;margin-right:5px}
+    main{max-width:760px;margin:auto;padding:0 14px}
+    .map-shell{position:relative;border:1px solid #252b33;border-radius:22px;overflow:hidden;background:#11161d}
+    #map{height:42vh;min-height:300px;max-height:440px;width:100%;background:#101318;z-index:1}
+    .map-top{position:absolute;z-index:500;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;pointer-events:none}
+    .map-chip{background:#10151ddd;border:1px solid #ffffff20;border-radius:30px;padding:8px 11px;font-size:10px;letter-spacing:.6px;backdrop-filter:blur(8px)}
+    .map-chip strong{color:#fff}
+    .map-location-control{width:42px;height:42px;display:flex;align-items:center;justify-content:center;background:#15191f;border:1px solid #343a44;border-radius:12px;color:white;font-size:20px;box-shadow:0 2px 8px #0008}
+    .leaflet-control-zoom{border:1px solid #343a44!important}
+    .leaflet-control-zoom a{background:#15191f!important;color:white!important;border-color:#343a44!important}
+    .leaflet-control-attribution{background:#090b0fcc!important;color:#9299a4!important;font-size:8px!important}
+    .leaflet-control-attribution a{color:#aab0ba!important}
+    .driver-marker{width:22px;height:22px;background:#2f80ff;border:4px solid white;border-radius:50%;box-shadow:0 0 0 7px #2f80ff33,0 2px 8px #0009}
+    .delivery-marker{width:34px;height:34px;display:flex;align-items:center;justify-content:center;background:var(--red);color:white;border:3px solid white;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 3px 8px #0009;font-weight:900}
+    .delivery-marker span{transform:rotate(45deg);font-size:13px}
+    .sheet{position:relative;margin-top:-18px;z-index:3;background:linear-gradient(180deg,#171c23 0%,#12161c 100%);border:1px solid #2a3039;border-radius:24px 24px 0 0;padding:19px 15px 18px;box-shadow:0 -12px 35px #0005}
+    .grabber{width:38px;height:4px;border-radius:9px;background:#505762;margin:-9px auto 15px}
+    .row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .eyebrow{font-size:10px;letter-spacing:1.5px;color:var(--muted);font-weight:800}
+    h1{font-size:20px;margin:5px 0 3px}.subtext{font-size:12px;color:var(--muted);line-height:1.45}
+    .route-info{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:16px 0}
+    .metric{background:#0e1218;border:1px solid var(--line);border-radius:13px;padding:11px 7px;text-align:center}
+    .metric strong{display:block;font-size:17px}.metric span{font-size:9px;color:var(--muted);letter-spacing:.5px}
+    .mode-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:15px 0 12px}
+    .mode-tabs button{background:#0d1117;border:1px solid var(--line);color:#aab0ba;padding:12px 8px;font-size:11px}
+    .mode-tabs button.active{background:#35191d;border-color:#a92a31;color:#fff}
+    .tool-row{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:12px 0}
+    .tool{display:flex;align-items:center;justify-content:center;gap:8px;min-height:54px;font-size:12px}
+    .tool .ico{font-size:19px}
+    .search{display:flex;align-items:center;gap:7px;background:#0d1117;border:1px solid var(--line);border-radius:14px;padding:5px 7px;margin:12px 0}
+    .search input{flex:1;min-width:0;background:transparent;border:0;outline:0;color:#fff;padding:11px 6px;font-size:13px}
+    .search button{padding:9px 11px;border-radius:10px}
+    .status{font-size:11px;color:var(--muted);min-height:17px;margin:8px 2px}
+    .progress{height:6px;background:#303640;border-radius:9px;overflow:hidden;margin:9px 0 14px}
+    .progress div{height:100%;width:0;background:var(--red);transition:width .2s}
+    .section-head{display:flex;align-items:center;justify-content:space-between;margin:20px 1px 10px}
+    .section-head strong{font-size:12px;letter-spacing:1px}
+    .section-head span{font-size:11px;color:var(--muted)}
+    .stop-list{display:grid;gap:8px}
+    .stop{display:flex;align-items:center;gap:11px;background:#0e1218;border:1px solid var(--line);border-radius:13px;padding:11px}
+    .stop-number{width:32px;height:32px;flex:0 0 32px;border-radius:50%;background:#35191d;color:#fff;display:grid;place-items:center;font-weight:900}
+    .stop-info{min-width:0;flex:1}.stop-info strong{display:block;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.stop-info small{font-size:10px;color:var(--muted)}
+    .stop-count{font-size:10px;color:#ff777d;white-space:nowrap}
+    .empty{background:#0e1218;border:1px dashed #39414d;border-radius:13px;padding:18px;text-align:center;color:var(--muted);font-size:12px;line-height:1.5}
+    .main-action{width:100%;padding:17px;font-size:13px;letter-spacing:.6px;margin-top:15px;box-shadow:0 7px 20px #ff303833}
+    .secondary-action{width:100%;margin-top:8px}
+    .notice{font-size:10px;color:var(--muted);line-height:1.5;margin:14px 2px 3px}
+    .bottom{position:fixed;bottom:0;left:0;right:0;display:grid;grid-template-columns:repeat(4,1fr);background:#11151bf2;border-top:1px solid var(--line);padding:10px 5px calc(10px + env(safe-area-inset-bottom));z-index:1000;backdrop-filter:blur(12px)}
+    .bottom button{background:transparent;color:#9299a4;border-radius:8px;padding:5px 2px;font-size:10px;font-weight:500}
+    .bottom button.active{color:#fff}.bottom .nav-ico{display:block;font-size:19px;margin-bottom:4px}
+    dialog{background:var(--panel);color:white;border:1px solid var(--line);border-radius:18px;width:calc(100% - 28px);max-width:520px;padding:20px}
+    dialog::backdrop{background:#000b}
+    dialog h3{margin:0 0 7px;font-size:18px}
+    dialog p{color:var(--muted);font-size:12px;line-height:1.5}
+    label{display:block;font-size:11px;color:var(--muted);margin:12px 0 5px}
+    input,textarea{width:100%;background:#0d1117;border:1px solid var(--line);border-radius:10px;padding:12px;color:white;margin:0;font:inherit;font-size:13px}
+    textarea{resize:vertical}
+    .dialog-actions{display:flex;gap:8px;margin-top:16px}.dialog-actions button{flex:1}
+    .hidden{display:none!important}
+    @media(min-width:650px){#map{height:430px}.sheet{padding:22px}.tool-row{grid-template-columns:1fr 1fr}}
   </style>
 </head>
-
 <body>
+<header>
+  <div><div class="brand">FL <span>ROTA</span></div><div class="subtitle">ENTREGAS INTELIGENTES</div></div>
+  <div class="online"><i></i>ONLINE</div>
+</header>
 
-  <header>
-    <div>
-      <div class="brand">FL <span>ROTA</span></div>
-      <div class="subtitle">ENTREGAS INTELIGENTES</div>
-    </div>
-
-    <div class="online"><i></i>ONLINE</div>
-  </header>
-
-  <main>
-
-    <div class="search">
-      <span>⌕</span>
-
-      <input
-        id="addressSearch"
-        placeholder="Pesquisar endereço..."
-        autocomplete="street-address"
-      >
-
-      <button
-        type="button"
-        id="ocrBtn"
-        aria-label="Fotografar etiqueta"
-        onclick="document.getElementById('ocrFile').click()"
-      >📷</button>
-    </div>
-
-    <div class="actions">
-
-      <button
-        type="button"
-        class="primary"
-        id="scanBtn"
-        onclick="document.getElementById('ocrFile').click()"
-      >
-        📷 FOTOGRAFAR ETIQUETA
-      </button>
-
-      <button
-        type="button"
-        class="secondary"
-        id="manualBtn"
-      >
-        ＋ Digitar pacote
-      </button>
-
-      <button
-        type="button"
-        class="secondary"
-        id="homeBtn"
-      >
-        ⌖ Ponto de partida
-      </button>
-
-    </div>
-
-    <div id="cameraWrap">
-      <video id="video" playsinline></video>
-
-      <div style="padding:10px">
-        <button
-          type="button"
-          class="secondary"
-          id="stopBtn"
-        >
-          Fechar câmera
-        </button>
-      </div>
-    </div>
-
-    <input
-      id="ocrFile"
-      type="file"
-      accept="image/*"
-      capture="environment"
-      hidden
-    >
-
-    <p id="ocrStatus" class="muted" aria-live="polite"></p>
-
-    <div class="section-title">
-      <span>MAPA DE ENTREGAS</span>
-
-      <button
-        type="button"
-        class="secondary"
-        id="routeBtn"
-        title="Atualizar rota"
-        aria-label="Atualizar rota"
-      >↻</button>
-    </div>
-
-    <!-- MAPA REAL -->
+<main>
+  <section class="map-shell">
     <div id="map"></div>
+    <div class="map-top">
+      <div class="map-chip"><strong id="mapModeLabel">MAPA DA ROTA</strong></div>
+      <div class="map-chip" id="gpsBadge">GPS • AGUARDANDO</div>
+    </div>
+  </section>
 
-    <!-- INFORMAÇÕES DA NAVEGAÇÃO -->
+  <section class="sheet">
+    <div class="grabber"></div>
+    <div class="row">
+      <div><div class="eyebrow">SEU DIA DE ENTREGAS</div><h1 id="screenTitle">Sua rota começa aqui</h1><div class="subtext" id="screenSubtitle">Cadastre os destinos e organize suas entregas.</div></div>
+      <button class="secondary" id="homeBtn" title="Ponto de partida">⌖</button>
+    </div>
+
     <div class="route-info">
+      <div class="metric"><strong id="routeDistance">--</strong><span>DISTÂNCIA</span></div>
+      <div class="metric"><strong id="routeTime">--</strong><span>ESTIMATIVA</span></div>
+      <div class="metric"><strong id="routeStops">0</strong><span>PARADAS</span></div>
+    </div>
 
-      <div class="route-info-box">
-        <strong id="routeDistance">--</strong>
-        <span>DISTÂNCIA</span>
+    <div class="mode-tabs">
+      <button id="createModeBtn" class="active" type="button">＋ CRIAR ROTA</button>
+      <button id="lookupModeBtn" type="button">⌕ CONSULTAR PACOTE</button>
+    </div>
+
+    <div id="createPanel">
+      <div class="subtext">Adicione cada pacote pela etiqueta ou dite o endereço. Destinos iguais serão agrupados na mesma parada.</div>
+      <div class="tool-row">
+        <button class="primary tool" id="scanBtn" type="button"><span class="ico">📷</span> LER ETIQUETA</button>
+        <button class="secondary tool" id="voiceBtn" type="button"><span class="ico">🎙</span> DITAR ENDEREÇO</button>
       </div>
-
-      <div class="route-info-box">
-        <strong id="routeTime">--</strong>
-        <span>ESTIMATIVA</span>
+      <div class="search">
+        <span>⌕</span><input id="addressSearch" placeholder="Ou digite um endereço..." autocomplete="street-address">
+        <button class="secondary" id="addTypedBtn" type="button">＋</button>
       </div>
+      <div id="ocrStatus" class="status" aria-live="polite">Pronto para cadastrar endereços.</div>
+      <div class="row"><div class="eyebrow">PACOTES CADASTRADOS</div><span id="packageCount">0 pacotes</span></div>
+      <div class="progress"><div id="packageProgress"></div></div>
+      <div class="section-head"><strong>DESTINOS DA ROTA</strong><span id="destinationCount">0 destinos</span></div>
+      <div id="list" class="stop-list"><div class="empty">Nenhum endereço cadastrado.<br>Use a câmera ou o microfone para começar.</div></div>
+      <button class="primary main-action" id="saveRouteBtn" type="button">SALVAR ROTA</button>
+    </div>
 
-      <div class="route-info-box">
-        <strong id="routeStops">0</strong>
-        <span>PARADAS</span>
+    <div id="lookupPanel" class="hidden">
+      <div class="subtext">Leia a etiqueta ou dite o endereço para descobrir o número da parada. A consulta não altera sua rota.</div>
+      <div class="tool-row">
+        <button class="primary tool" id="lookupScanBtn" type="button"><span class="ico">📷</span> LER ETIQUETA</button>
+        <button class="secondary tool" id="lookupVoiceBtn" type="button"><span class="ico">🎙</span> DITAR ENDEREÇO</button>
       </div>
-
-    </div>
-
-    <div id="mapStatus" aria-live="polite">
-      Aguardando localização...
-    </div>
-
-    <div class="stats">
-
-      <div class="stat">
-        <b id="count">0</b>
-        <span>Pacotes</span>
+      <div class="search">
+        <span>⌕</span><input id="lookupAddress" placeholder="Digite o endereço para consultar..." autocomplete="street-address">
+        <button class="secondary" id="lookupSearchBtn" type="button">BUSCAR</button>
       </div>
-
-      <div class="stat">
-        <b id="pending">0</b>
-        <span>Pendentes</span>
-      </div>
-
-      <div class="stat">
-        <b id="done">0</b>
-        <span>Entregues</span>
-      </div>
-
+      <div id="lookupResult" class="empty">A numeração das paradas aparecerá aqui.</div>
+      <div id="lookupStatus" class="status" aria-live="polite"></div>
     </div>
 
-    <button
-      type="button"
-      class="primary"
-      id="navBtn"
-      style="width:100%;padding:17px"
-    >
-      INICIAR ROTA →
-    </button>
+    <button class="primary main-action" id="navBtn" type="button">INICIAR ROTA →</button>
+    <button class="secondary secondary-action hidden" id="rebuildBtn" type="button">ATUALIZAR ROTA</button>
+    <p class="notice">FL ROTA • Confira os endereços e a sequência das paradas antes de iniciar o trabalho.</p>
+  </section>
+</main>
 
-    <div class="section-title">
-      <span>MEUS PACOTES</span>
+<nav class="bottom">
+  <button class="active" id="tabHome" type="button"><span class="nav-ico">⌂</span>Início</button>
+  <button id="tabStops" type="button"><span class="nav-ico">▣</span>Paradas</button>
+  <button id="tabMap" type="button"><span class="nav-ico">⌖</span>Mapa</button>
+  <button id="tabSettings" type="button"><span class="nav-ico">⚙</span>Config.</button>
+</nav>
 
-      <button
-        type="button"
-        class="secondary"
-        id="clearBtn"
-      >
-        Limpar lista
-      </button>
-    </div>
+<input id="ocrFile" type="file" accept="image/*" capture="environment" hidden>
+<div id="cameraWrap" class="hidden"><video id="video" playsinline></video><button id="stopBtn" type="button">Fechar câmera</button></div>
 
-    <div class="card" id="list">
-      <div class="muted">
-        Nenhum pacote cadastrado ainda.
-      </div>
-    </div>
+<dialog id="reviewDialog">
+  <h3>Confirmar endereço</h3>
+  <p>Confira o endereço reconhecido. Você pode corrigir antes de cadastrar.</p>
+  <label for="reviewAddress">Endereço completo</label>
+  <textarea id="reviewAddress" rows="3" placeholder="Rua, número, bairro, cidade e CEP"></textarea>
+  <div class="dialog-actions">
+    <button class="secondary" id="cancelReview" type="button">Cancelar</button>
+    <button class="primary" id="confirmReview" type="button">CONFIRMAR</button>
+  </div>
+</dialog>
 
-    <div class="section-title">
-      Adicionar pacote manualmente
-    </div>
+<dialog id="homeDialog">
+  <h3>Ponto de partida</h3><p>Defina de onde a rota deve começar.</p>
+  <label for="homeAddress">Endereço de saída</label><input id="homeAddress" placeholder="Rua, número, bairro, cidade">
+  <div class="dialog-actions">
+    <button class="secondary" id="geoBtn" type="button">📍 Usar GPS</button>
+    <button class="primary" id="saveHome" type="button">SALVAR</button>
+  </div>
+  <div class="dialog-actions"><button class="secondary" id="closeHome" type="button">Fechar</button></div>
+</dialog>
 
-    <div class="card">
+<dialog id="resultDialog">
+  <h3 id="resultTitle">Resultado da consulta</h3>
+  <p id="resultText"></p>
+  <div class="dialog-actions"><button class="primary" id="closeResult" type="button">ENTENDI</button></div>
+</dialog>
 
-      <label>
-        Código de barras / rastreio (opcional)
-      </label>
-
-      <input
-        id="code"
-        placeholder="Código do pacote"
-      >
-
-      <label>
-        Endereço completo
-      </label>
-
-      <textarea
-        id="address"
-        rows="2"
-        placeholder="Rua, número, bairro, cidade, CEP"
-      ></textarea>
-
-      <button
-        type="button"
-        class="primary"
-        id="addBtn"
-        style="width:100%"
-      >
-        ADICIONAR PACOTE
-      </button>
-
-    </div>
-
-    <p class="notice">
-      FL ROTA • Fotografe a etiqueta e confira o endereço reconhecido antes de iniciar sua rota.
-    </p>
-
-  </main>
-
-  <footer>
-    FL ROTA • ENTREGAS INTELIGENTES
-  </footer>
-
-  <nav class="bottom">
-
-    <a href="#">
-      ⌂<br>Início
-    </a>
-
-    <a href="#list">
-      ▣<br>Pacotes
-    </a>
-
-    <a href="#map">
-      ▥<br>Mapa
-    </a>
-
-    <a
-      href="#"
-      onclick="document.getElementById('homeBtn').click();return false;"
-    >
-      ⚙<br>Configurações
-    </a>
-
-  </nav>
-
-  <dialog id="homeDialog">
-
-    <h3>Ponto de partida</h3>
-
-    <p class="muted">
-      Defina seu endereço de saída.
-    </p>
-
-    <label>Endereço</label>
-
-    <input
-      id="homeAddress"
-      placeholder="Seu endereço"
-    >
-
-    <div class="dialog-actions">
-
-      <button
-        type="button"
-        class="secondary"
-        id="geoBtn"
-      >
-        📍 Usar GPS
-      </button>
-
-      <button
-        type="button"
-        class="primary"
-        id="saveHome"
-      >
-        Salvar
-      </button>
-
-    </div>
-
-  </dialog>
-
-  <dialog id="reviewDialog">
-
-    <h3>Confirmar pacote</h3>
-
-    <p class="muted">
-      Confira os dados antes de salvar.
-    </p>
-
-    <label>Código (opcional)</label>
-
-    <input
-      id="reviewCode"
-      placeholder="Código do pacote"
-    >
-
-    <label>Endereço completo</label>
-
-    <textarea
-      id="reviewAddress"
-      rows="3"
-      placeholder="Rua, número, bairro, cidade, CEP"
-    ></textarea>
-
-    <div class="dialog-actions">
-
-      <button
-        type="button"
-        class="secondary"
-        id="cancelReview"
-      >
-        Cancelar
-      </button>
-
-      <button
-        type="button"
-        class="primary"
-        id="confirmReview"
-      >
-        Confirmar
-      </button>
-
-    </div>
-
-  </dialog>
-
-  <!-- BIBLIOTECAS -->
-
-  <script
-    src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
-    crossorigin=""
-  ></script>
-
-  <script
-    src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"
-  ></script>
-
-  <!-- LÓGICA PRINCIPAL DO FL ROTA -->
-  <script src="app.js"></script>
-
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
